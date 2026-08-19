@@ -16,7 +16,8 @@
     "prisma:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "db:reset": "prisma migrate reset --force",
-    "check:concurrency": "node scripts/concurrency-check.mjs"
+    "check:concurrency": "node scripts/concurrency-check.mjs",
+    "db:seed:demo": "node prisma/seed-demo.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
