@@ -103,6 +103,7 @@ export const reportRangeSchema = {
     status: logStatus.optional(),
     priority: priority.optional(),
     months: z.coerce.number().int().min(1).max(36).optional(),
+    limit: z.coerce.number().int().min(1).max(5000).optional(),
   }),
 };
 

@@ -137,17 +137,13 @@ export async function assignTechnician({ logId, technicianId, actor, reassign = 
       },
     });
 
-    // Keep the denormalised workload counters honest.
-    await tx.technician.updateMany({
-      where: { userId: technicianId },
-      data: { activeTaskCount: { increment: 1 } },
-    });
-    if (previousTechnicianId) {
-      await tx.technician.updateMany({
-        where: { userId: previousTechnicianId, activeTaskCount: { gt: 0 } },
-        data: { activeTaskCount: { decrement: 1 } },
-      });
-    }
+    // NOTE: workload is deliberately NOT cached on the technician row. An
+    // earlier version kept an `activeTaskCount` column here, incremented on
+    // assignment and decremented on reassignment — but nothing decremented it
+    // when a ticket was RESOLVED or CLOSED, so it drifted upward forever
+    // (observed: a technician showing 2 open tickets while holding 0).
+    // listAssignableTechnicians counts open tickets live via an indexed
+    // `_count`, which is correct by construction and cheap at this scale.
 
     return row;
   });
@@ -203,10 +199,6 @@ export async function unassignTechnician({ logId, actor }) {
         changedById: actor.id,
         note: 'Technician unassigned; ticket returned to the queue',
       },
-    });
-    await tx.technician.updateMany({
-      where: { userId: previousTechnicianId, activeTaskCount: { gt: 0 } },
-      data: { activeTaskCount: { decrement: 1 } },
     });
     return row;
   });

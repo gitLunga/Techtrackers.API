@@ -25,6 +25,7 @@
  */
 import prisma from '../config/prisma.js';
 import logger from '../config/logger.js';
+import ApiError from '../utils/ApiError.js';
 import {
   ESCALATION_THRESHOLDS,
   LOG_STATUS,
@@ -151,7 +152,8 @@ export async function runEscalationSweep(now = new Date()) {
 /** Manual escalation by an admin/HOD, independent of the SLA clock. */
 export async function escalateManually({ logId, level, reason, actor }) {
   const log = await prisma.log.findUnique({ where: { id: logId } });
-  if (!log) throw new Error(`Ticket ${logId} not found`);
+  // A bare Error would fall through to the generic 500 handler; callers need a 404.
+  if (!log) throw ApiError.notFound(`Ticket ${logId} not found`);
 
   await prisma.$transaction([
     prisma.escalation.upsert({

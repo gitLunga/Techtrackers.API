@@ -625,6 +625,43 @@ raised exactly once, guaranteed by `@@unique([logId, level])`.
 
 ---
 
+# Testing concurrency
+
+Postman and Newman fire requests **sequentially**, so they cannot catch a race. There is a
+separate script for this:
+
+```bash
+npm run check:concurrency      # API must be running
+```
+
+It fires 10 simultaneous ticket submissions from each of two departments and checks four things:
+
+| Check | Why |
+|---|---|
+| Every submission succeeded | A race here rejects real users' tickets |
+| No duplicate references | Correctness |
+| References are **gapless** per department | A missing `HR-0014` looks like a lost ticket to whoever was quoted it |
+| Departments did not block each other | The lock must be per-department, not global |
+
+Expected:
+
+```
+  20/20 succeeded in 171ms
+
+  PASS  every concurrent submission succeeded
+  PASS  no duplicate references issued
+  PASS  HR references are gapless — HR-0074..HR-0083, 0 gap(s)
+  PASS  ICT references are gapless — ICT-0011..ICT-0020, 0 gap(s)
+  PASS  departments did not serialise against each other — 171ms
+```
+
+**Keep this in the suite.** Reference allocation is serialised by a `SELECT … FOR UPDATE` row
+lock in `log.service.js → nextReference()`. That lock looks removable to anyone tidying the code,
+and nothing else in the test suite would notice it going. Before the lock existed, 10 concurrent
+submissions produced **3 tickets and 7 rejections**.
+
+---
+
 # Testing real-time (Socket.IO)
 
 Save as `socket-test.html` and open it in a browser:

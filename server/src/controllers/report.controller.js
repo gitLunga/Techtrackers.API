@@ -22,7 +22,16 @@ export const statusCounts = asyncHandler(async (req, res) =>
 
 export const issues = asyncHandler(async (req, res) => {
   const rows = await reportService.getIssueReport(req.user, req.query);
-  return ok(res, rows, `${rows.length} ticket(s) in report`);
+  // Say so when the cap was hit, so a truncated export is never mistaken for
+  // a complete one.
+  const truncated = rows.length >= (Number(req.query.limit) || reportService.ISSUE_REPORT_DEFAULT_LIMIT);
+  return ok(
+    res,
+    rows,
+    truncated
+      ? `${rows.length} ticket(s) returned (row limit reached — narrow the range with from/to, or raise limit)`
+      : `${rows.length} ticket(s) in report`,
+  );
 });
 
 export const monthlySummary = asyncHandler(async (req, res) =>

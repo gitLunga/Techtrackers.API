@@ -63,8 +63,18 @@ export async function getStatusCountReport(user, range = {}) {
   };
 }
 
-/** Flat ticket listing for export — the old GetIssueByStatusReport, corrected. */
-export async function getIssueReport(user, { status, priority, from, to } = {}) {
+/**
+ * Flat ticket listing for export — the old GetIssueByStatusReport, corrected.
+ *
+ * BOUNDED. An export endpoint with no ceiling is the same unbounded-ToListAsync
+ * problem the old API had everywhere: it works on test data and falls over once
+ * the table is real. `limit` caps the rows (default 500, max 5000); narrow with
+ * `from`/`to`/`status`/`priority` rather than raising it.
+ */
+export const ISSUE_REPORT_DEFAULT_LIMIT = 500;
+export const ISSUE_REPORT_MAX_LIMIT = 5000;
+
+export async function getIssueReport(user, { status, priority, from, to, limit } = {}) {
   const where = {
     ...scopeFor(user),
     ...dateRangeFilter({ from, to }),
@@ -72,8 +82,14 @@ export async function getIssueReport(user, { status, priority, from, to } = {}) 
     ...(priority ? { priority } : {}),
   };
 
+  const take = Math.min(
+    Math.max(1, Number.parseInt(limit, 10) || ISSUE_REPORT_DEFAULT_LIMIT),
+    ISSUE_REPORT_MAX_LIMIT,
+  );
+
   const logs = await prisma.log.findMany({
     where,
+    take,
     orderBy: { createdAt: 'desc' },
     include: {
       technician: { select: { surname: true, initials: true } },

@@ -161,17 +161,14 @@ model Technician {
   userId Int  @id
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  specialization  String?
-  contacts        String?
+  specialization String?
+  contacts       String?
   // Stored as minutes-from-midnight (0..1439) instead of C#'s TimeSpan, which
   // has no clean JSON representation. 08:00 => 480, 17:00 => 1020.
-  availableFrom   Int            @default(480)
-  availableTo     Int            @default(1020)
-  type            TechnicianType @default(INTERNAL)
-  location        String?
-  // Denormalised counter kept in sync by the assignment service so the
-  // "who is least loaded?" query does not need a COUNT over every log.
-  activeTaskCount Int            @default(0)
+  availableFrom  Int            @default(480)
+  availableTo    Int            @default(1020)
+  type           TechnicianType @default(INTERNAL)
+  location       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

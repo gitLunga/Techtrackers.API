@@ -162,6 +162,30 @@ The changes that matter most:
 | `npm run prisma:studio` | Browse the database in a GUI |
 | `npm run db:seed` | Load roles, departments, categories, SLAs, users |
 | `npm run db:reset` | Drop, re-migrate and re-seed (destroys data) |
+| `npm run check:concurrency` | Race-condition regression test (API must be running) |
+
+---
+
+## Known limitations
+
+Honest list of what is *not* done, so nobody discovers these the hard way:
+
+- **No unit test suite.** Coverage is the Postman collection (104 requests / 193 assertions) plus
+  `npm run check:concurrency`. That exercises the API end to end but does not test services in
+  isolation. `sla.service.evaluate()` is deliberately pure and is the obvious first thing to
+  unit-test when you add Vitest or Jest.
+- **Attachments are on local disk.** Fine for one server; on multiple instances or an ephemeral
+  container filesystem you need a shared volume or object storage.
+- **The SLA sweep must run on exactly one instance.** There is no distributed lock — set
+  `SLA_JOB_ENABLED=false` on all but one, or two instances will both escalate.
+- **`GET /reports/issues` is capped** at 500 rows by default (5000 max) and says so in the
+  response message when the cap is hit. For a genuinely large export, add streaming or a
+  background job rather than raising the ceiling.
+- **Refresh tokens are never garbage-collected.** Revoked and expired rows accumulate in
+  `refresh_tokens`; add a periodic cleanup before this matters.
+- **No request tracing / correlation ids.** Logs are per-line, not per-request.
+- **Email failures are logged, not retried.** A notification email lost to a transient SMTP
+  outage is gone; the in-app notification still lands.
 
 ---
 
