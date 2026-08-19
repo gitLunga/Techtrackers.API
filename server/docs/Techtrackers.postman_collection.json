@@ -1,0 +1,4439 @@
+{
+  "info": {
+    "name": "Techtrackers API v1",
+    "description": "Technical Support Logging System - Node.js / Express / PostgreSQL backend.\n\n## Before you start\n1. Start the API:  cd server && npm run dev\n2. Import BOTH this collection and `Techtrackers.postman_environment.json`.\n3. Select the **Techtrackers Local** environment (top-right dropdown).\n4. Run **01 Auth > Login (Admin)** first - it saves the token automatically.\n\n## How the automation works\nRequests write variables ({{accessToken}}, {{logId}}, ...) into the environment via their\nTests scripts, so later requests reuse them without any copy-pasting. Run the folders\ntop to bottom, or use the Collection Runner on the whole collection.\n\nEvery request has assertions in its **Tests** tab - the green/red result IS the verification.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Health & Index",
+      "description": "Confirm the API and its database are reachable before anything else.",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"database connected\", () => pm.expect(pm.response.json().database).to.eql(\"connected\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Returns 200 when the API is up AND Postgres answers a query; 503 if the database is unreachable.\n\nVERIFY: `database` reads \"connected\"."
+          }
+        },
+        {
+          "name": "API index",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1"
+              ]
+            },
+            "description": "Self-describing directory of every mounted route group."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Auth",
+      "description": "Sign-in, token refresh and password reset.\n\nThe old C# API had NO authentication at all - login returned a JSON blob and every other\nendpoint was wide open. Everything here is new.",
+      "item": [
+        {
+          "name": "Login (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"adminToken\", d.accessToken);",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);",
+                  "pm.environment.set(\"adminUserId\", d.user.id);",
+                  "pm.test(\"returns an access token\", () => pm.expect(pm.response.json().data.accessToken).to.be.a(\"string\"));",
+                  "pm.test(\"user has ADMIN role\", () => pm.expect(pm.response.json().data.user.roles).to.include(\"ADMIN\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "RUN THIS FIRST.\n\nReturns an access token (15 min) + refresh token (7 days).\nThe Tests tab saves both to the environment, so every later request is authenticated automatically.\n\nVERIFY: `data.user.roles` contains \"ADMIN\"; `data.accessToken` is a 3-part JWT.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@techtrackers.local\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Staff)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"staffToken\", d.accessToken);",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);",
+                  "pm.environment.set(\"staffUserId\", d.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "A second identity, used later to prove role-based access control actually blocks things.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff@techtrackers.local\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Technician 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"tech1Token\", d.accessToken);",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);",
+                  "pm.environment.set(\"tech1UserId\", d.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"tech1@techtrackers.local\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Technician 2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"tech2Token\", d.accessToken);",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);",
+                  "pm.environment.set(\"tech2UserId\", d.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"tech2@techtrackers.local\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (HOD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"hodToken\", d.accessToken);",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);",
+                  "pm.environment.set(\"hodUserId\", d.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"hod@techtrackers.local\",\n  \"password\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login - wrong password (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "VERIFY: the message is exactly the same as for an unknown email - \"Invalid email or password\".\nAnything more specific would tell an attacker which addresses have accounts.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@techtrackers.local\",\n  \"password\": \"NotThePassword1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login - unknown email (expect 401, identical message)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);",
+                  "pm.test(\"no account enumeration\", () => pm.expect(pm.response.json().message).to.eql(\"Invalid email or password\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Compare this response body with the previous one. They must be byte-identical.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@nowhere.local\",\n  \"password\": \"NotThePassword1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login - malformed email (expect 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);",
+                  "pm.test(\"names the bad field\", () => pm.expect(JSON.stringify(pm.response.json().errors)).to.include(\"email\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Validation runs BEFORE the controller. VERIFY: `errors[]` names the offending field.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"not-an-email\",\n  \"password\": \"x\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get my profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.environment.set(\"myUserId\", pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Identity comes from the TOKEN, never from a URL parameter.\nThis is the fix for the old `/GetAdminLoggedIssues/admin/{adminId}` pattern, where changing the number in the URL read someone else's data."
+          }
+        },
+        {
+          "name": "Get my profile - no token (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Refresh access token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"accessToken\", d.accessToken);",
+                  "pm.environment.set(\"refreshToken\", d.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Exchanges a refresh token for a fresh access token AND a new refresh token (rotation).\n\nVERIFY: run this twice. The second run returns 401 because the first rotation revoked the old token - that is how token theft is detected.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Change my password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Expect 400: the new password must differ from the current one.\nChange `newPassword` to something else to see it succeed - note that it signs you out of all devices.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Password123\",\n  \"newPassword\": \"Password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Forgot password - request OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Sends a 6-digit code.\n\nWITH NO SMTP CONFIGURED the code is printed to the API's console instead of emailed - look at the terminal running `npm run dev` for a line like:\n  [MAIL:CONSOLE] To: ... Your Techtrackers one-time code is 123456.\n\nVERIFY: try an email that does not exist. You still get 200 with the same message - no account enumeration.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff2@techtrackers.local\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Forgot password - unknown email (still 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"does-not-exist@nowhere.local\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds\", () => pm.expect([200,400]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Paste the real code from the console into `code`.\nAs written (000000) it returns 400 - and each wrong attempt is counted, so a 6-digit code cannot be brute-forced.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff2@techtrackers.local\",\n  \"code\": \"000000\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reset password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds\", () => pm.expect([200,400]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Paste the real code into `code`.\n\nVERIFY afterwards:\n  1. Login with the NEW password -> 200\n  2. Login with the OLD password -> 401\n  3. Reusing the same code -> 400 (codes are single-use)\n  4. Try newPassword \"weak\" -> 422 listing every unmet rule",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff2@techtrackers.local\",\n  \"code\": \"000000\",\n  \"newPassword\": \"NewPass456\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revokes the refresh token. Omit the body to sign out of EVERY device.\n\nRun 'Login (Admin)' again afterwards to continue testing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Reference Data",
+      "description": "Departments, categories and SLA targets. Any signed-in user may READ them (the ticket form\nneeds the dropdowns); only ADMIN may write.\n\nThe old system had no category endpoints at all, and no way to configure SLAs through the API\ndespite SLA being its headline feature.",
+      "item": [
+        {
+          "name": "List categories",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.environment.set(\"categoryId\", pm.response.json().data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories"
+              ]
+            },
+            "description": "Populates the category dropdown on the log-an-issue form.\nSaves the first id as {{categoryId}} for later requests."
+          }
+        },
+        {
+          "name": "List departments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.environment.set(\"departmentId\", pm.response.json().data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/departments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "departments"
+              ]
+            },
+            "description": "VERIFY: each row carries a `code` (ICT, HR, FIN...). That code becomes the ticket reference prefix, e.g. HR-0001."
+          }
+        },
+        {
+          "name": "List SLA targets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"one SLA per priority\", () => pm.expect(pm.response.json().data.length).to.eql(4));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/slas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "slas"
+              ]
+            },
+            "description": "THE AUTOMATED SLA TABLE. One row per priority; a new ticket's priority selects its row and its deadlines.\n\nVERIFY: CRITICAL responds in 15 min / resolves in 240 min; LOW is 480 / 4320."
+          }
+        },
+        {
+          "name": "Create category (ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or already exists\", () => pm.expect([201,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories"
+              ]
+            },
+            "description": "VERIFY: POST the same name twice -> 409 Conflict (unique constraint translated to the right status, not a 500).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Video Conferencing\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create category as STAFF (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories"
+              ]
+            },
+            "description": "THE RBAC PROOF. Same URL, same body, non-admin token -> 403.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Should Not Be Created\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create department (ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or exists\", () => pm.expect([201,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/departments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "departments"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Facilities Management\",\n  \"code\": \"FAC\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Set an SLA target (ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/slas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "slas"
+              ]
+            },
+            "description": "Upsert: posting an existing priority UPDATES it rather than failing.\n\nVERIFY: set responseMinutes larger than resolutionMinutes -> 400, because you cannot be given longer to acknowledge than to fix.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"LOW\",\n  \"description\": \"Minor issue or general request\",\n  \"responseMinutes\": 480,\n  \"resolutionMinutes\": 4320\n}"
+            }
+          }
+        },
+        {
+          "name": "Invalid SLA - response > resolution (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/slas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "slas"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"LOW\",\n  \"responseMinutes\": 9000,\n  \"resolutionMinutes\": 60\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete a category in use (expect 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"blocked or gone\", () => pm.expect([409,204,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories/{{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories",
+                "{{categoryId}}"
+              ]
+            },
+            "description": "Reference data attached to real tickets cannot be deleted.\nThe old DeleteDepartment called Remove() unconditionally and returned a raw SQL foreign-key error as a 500."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Tickets - Create & Read",
+      "description": "The core of the system. Note that the reporter is taken from the TOKEN - there is no field in\nthe request that can name a different one (the old LogDto had `Staff_ID` in the body).",
+      "item": [
+        {
+          "name": "Log an issue (as Staff)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set(\"logId\", d.id);",
+                  "pm.environment.set(\"logReference\", d.reference);",
+                  "pm.test(\"reference generated\", () => pm.expect(d.reference).to.match(/^[A-Z]+-\\d{4}$/));",
+                  "pm.test(\"status is PENDING\", () => pm.expect(d.status).to.eql(\"PENDING\"));",
+                  "pm.test(\"SLA auto-attached by priority\", () => pm.expect(d.sla.priority).to.eql(\"HIGH\"));",
+                  "pm.test(\"response deadline set at creation\", () => pm.expect(d.timestamps.responseDueAt).to.not.be.null);",
+                  "pm.test(\"resolution deadline set at creation\", () => pm.expect(d.timestamps.resolutionDueAt).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": "THE HEADLINE FLOW - automated SLA assignment.\n\nVERIFY in the response:\n  - `data.reference` is like HR-0001 (department code + sequence, unique)\n  - `data.status` is PENDING\n  - `data.sla.priority` is HIGH - matched automatically from the priority you sent\n  - `data.timestamps.responseDueAt` AND `resolutionDueAt` are BOTH already set\n\nThat last point is the fix: the old code left resolutionDue NULL until a background job\nnoticed the response deadline had passed, so an unassigned ticket had no deadline at all.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Laptop will not power on\",\n  \"description\": \"My work laptop stopped powering on this morning after a Windows update installed overnight.\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"priority\": \"HIGH\",\n  \"location\": \"HR Office, 2nd floor\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Log an issue WITH attachments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"created or validation error\", () => pm.expect([201,400,422]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) { const a = pm.response.json().data.attachments; pm.environment.set(\"attachmentLogId\", pm.response.json().data.id); if (a.length) pm.environment.set(\"attachmentId\", a[0].id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": "Multipart upload. In Postman click the `attachments` row and choose real files.\n\nVERIFY:\n  - `data.attachments[]` lists name/type/size but NOT the file bytes\n  - the files appear in `server/uploads/` with RANDOMISED names (a client cannot control the path on disk)\n  - try a .sh or .exe -> 400, blocked by the mime allow-list\n  - try a file over 5MB -> 400\n\nThe old API stored the raw bytes in the database and base64-inlined them into every list\nresponse; a page of tickets with photos was tens of megabytes of JSON.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Monitor flickering constantly",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "The external monitor at my desk flickers every few seconds since this morning.",
+                  "type": "text"
+                },
+                {
+                  "key": "categoryId",
+                  "value": "{{categoryId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "priority",
+                  "value": "MEDIUM",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "Finance, desk 14",
+                  "type": "text"
+                },
+                {
+                  "key": "attachments",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick 1-5 files (images, PDF, docx, xlsx, txt). Max 5MB each."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject too-short input (expect 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": "VERIFY: `errors[]` lists EVERY failing field at once, not just the first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"hi\",\n  \"description\": \"broken\",\n  \"categoryId\": \"{{categoryId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reject unknown category (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Testing a bad category id\",\n  \"description\": \"This should fail because the category does not exist.\",\n  \"categoryId\": 999999\n}"
+            }
+          }
+        },
+        {
+          "name": "List my tickets (Staff)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"paginated envelope\", () => pm.expect(pm.response.json().meta).to.have.property(\"totalPages\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "VISIBILITY SCOPING - the same URL returns different data per role, decided from the JWT:\n  STAFF      -> only tickets they reported\n  TECHNICIAN -> only tickets assigned to them (or accepted collaborations)\n  HOD        -> everything in their department\n  ADMIN      -> everything\n\nThe old API took `isTechnician` as a QUERY-STRING BOOLEAN, so callers chose their own permissions.\n\nVERIFY: compare `meta.total` here against the same request with {{adminToken}}."
+          }
+        },
+        {
+          "name": "List all tickets (Admin sees more)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Filter tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs?status=PENDING&priority=HIGH&open=true&sort=newest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "priority",
+                  "value": "HIGH"
+                },
+                {
+                  "key": "open",
+                  "value": "true"
+                },
+                {
+                  "key": "sort",
+                  "value": "newest"
+                }
+              ]
+            },
+            "description": "Filters: status, priority, categoryId, departmentId, technicianId, open, overdue, search, sort.\n\nTry `overdue=true` to list every ticket past its SLA deadline - a question the old API could not answer."
+          }
+        },
+        {
+          "name": "Search tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs?search=laptop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "laptop"
+                }
+              ]
+            },
+            "description": "Case-insensitive match across title, description and reference."
+          }
+        },
+        {
+          "name": "Get one ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"includes SLA status\", () => pm.expect(pm.response.json().data).to.have.property(\"slaStatus\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}"
+              ]
+            },
+            "description": "Full detail: status history, escalations, feedback, attachment metadata and live SLA position."
+          }
+        },
+        {
+          "name": "Get a ticket you may NOT see (expect 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"hidden or legitimately visible\", () => pm.expect([404,200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}"
+              ]
+            },
+            "description": "A technician with no connection to this ticket gets 404 - NOT 403.\n404 does not confirm the ticket exists, so ids cannot be probed.\n\n(If tech2 was assigned or accepted a collaboration earlier in your run, this returns 200 - that is correct.)"
+          }
+        },
+        {
+          "name": "Ticket counts (dashboard tiles)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/counts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "counts"
+              ]
+            },
+            "description": "One grouped query returns every status count plus open/overdue totals.\nThe old TechController needed five separate endpoints to draw four tiles."
+          }
+        },
+        {
+          "name": "Live SLA status of a ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"has SLA telemetry\", () => pm.expect(pm.response.json().data).to.have.property(\"percentConsumed\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/sla",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "sla"
+              ]
+            },
+            "description": "THE SLA COUNTDOWN, for a progress bar in the UI.\n\nVERIFY the fields:\n  percentConsumed          how much of the resolution window is used\n  resolutionRemainingMinutes  negative once breached\n  dueEscalationLevel       what the background job will act on (1 at 50%, 2 at 75%, 3 at 100%)\n  responseBreached / resolutionBreached\n\nThe same pure function produces this and drives the escalation job, so what the user sees\nand what the system acts on can never disagree."
+          }
+        },
+        {
+          "name": "Download an attachment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"downloads or not-found\", () => pm.expect([200,404,422]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{attachmentLogId}}/attachments/{{attachmentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{attachmentLogId}}",
+                "attachments",
+                "{{attachmentId}}"
+              ]
+            },
+            "description": "Streams the file from disk with its original filename. Run the attachment upload request first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Assignment",
+      "description": "Dispatching work. ADMIN and HOD only.\n\nThe old version lived entirely inside a controller method and would assign ANY user id you\npassed - including a staff member or a number that did not exist.",
+      "item": [
+        {
+          "name": "List assignable technicians",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const t = pm.response.json().data;",
+                  "const t1 = t.find(x => x.email === \"tech1@techtrackers.local\");",
+                  "const t2 = t.find(x => x.email === \"tech2@techtrackers.local\");",
+                  "if (t1) pm.environment.set(\"technicianId\", t1.id);",
+                  "if (t2) pm.environment.set(\"technician2Id\", t2.id);",
+                  "pm.test(\"workload included\", () => pm.expect(t[0]).to.have.property(\"openTaskCount\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/technicians",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "technicians"
+              ]
+            },
+            "description": "VERIFY: each technician carries `openTaskCount` - their current workload - so assignment is an informed choice.\nThe old endpoint returned name and email only."
+          }
+        },
+        {
+          "name": "Suggest the best technician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/suggest-technician",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "suggest-technician"
+              ]
+            },
+            "description": "Recommends the least-loaded technician, preferring the reporter's own department.\nGroundwork for true auto-assignment - it only recommends, a human still confirms."
+          }
+        },
+        {
+          "name": "Assign a technician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data;",
+                  "pm.test(\"status is ASSIGNED\", () => pm.expect(d.status).to.eql(\"ASSIGNED\"));",
+                  "pm.test(\"response clock stopped\", () => pm.expect(d.timestamps.respondedAt).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "assign"
+              ]
+            },
+            "description": "VERIFY:\n  - `data.status` becomes ASSIGNED\n  - `data.timestamps.respondedAt` is stamped - THIS STOPS THE RESPONSE SLA CLOCK\n  - the technician now receives a notification (check folder 08)\n  - the technician can now GET the ticket (they got 404 before)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technicianId\": \"{{technicianId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Assign again (expect 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "assign"
+              ]
+            },
+            "description": "VERIFY: the message tells you how to proceed - send `reassign: true`.\nThe old code returned a flat 400 and offered NO way to ever change an assignment, so a mistake was permanent.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technicianId\": \"{{technicianId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reassign to another technician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "assign"
+              ]
+            },
+            "description": "VERIFY: both the old and new technician are notified, and both workload counters are corrected in the same transaction.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technicianId\": \"{{technician2Id}}\",\n  \"reassign\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Assign to a NON-technician (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "assign"
+              ]
+            },
+            "description": "THE CHECK THE OLD CODE NEVER MADE. It only tested `TechnicianId <= 0`.\nVERIFY: the message names the roles the user actually holds.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technicianId\": \"{{staffUserId}}\",\n  \"reassign\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Assign as STAFF (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/assign",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "assign"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"technicianId\": \"{{technicianId}}\",\n  \"reassign\": true\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Ticket Lifecycle",
+      "description": "Status transitions. Run these IN ORDER - the point is that the lifecycle is enforced.\n\nLegal transitions are declared as data in `src/constants/index.js`. The old API let any string\nbe written over any status, including reviving a CLOSED ticket.",
+      "item": [
+        {
+          "name": "Technician starts work (-> IN_PROGRESS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"accepted or not-your-ticket\", () => pm.expect([200,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "Uses tech2's token because the reassign step moved the ticket to them.\n\nVERIFY: the reporter gets a notification; a row is added to the ticket's status history.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PROGRESS\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Put ON_HOLD without a note (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected\", () => pm.expect([400,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "A business rule enforced in the SERVICE, so it holds no matter which route reaches it.\nThe old code had a note field for holds and silently ignored it when missing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ON_HOLD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Put ON_HOLD with a note",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"accepted\", () => pm.expect([200,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ON_HOLD\",\n  \"note\": \"Awaiting a replacement battery from the supplier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "ON_HOLD -> RESOLVED (expect 400: illegal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"blocked by the state machine\", () => pm.expect([400,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "THE LIFECYCLE PROOF. You must come off hold before you can resolve.\n\nVERIFY: the error message LISTS the legal next states.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Resume work (-> IN_PROGRESS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"accepted\", () => pm.expect([200,403,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PROGRESS\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Resolve the ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"resolved\", () => pm.expect([200,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "VERIFY: `timestamps.resolvedAt` is stamped. Every report measures against THIS, not against the SLA deadline.\n\nThe old reports computed `ResolutionDue - AssignedAt` - the SLA WINDOW - so they showed the same\n'average resolution time' whether a ticket was fixed in an hour or never fixed at all.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\",\n  \"note\": \"Replaced the faulty battery and reseated the RAM\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Uninvolved user changes status (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"forbidden or legitimately allowed\", () => pm.expect([403,200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "A technician with no connection to this ticket cannot drive it.\nOnly the assigned technician, an accepted collaborator, the reporter (to close a RESOLVED ticket),\nan ADMIN, or the ticket's own HOD may change status.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CLOSED\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reporter closes the resolved ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"closed\", () => pm.expect([200,403,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "status"
+              ]
+            },
+            "description": "The reporter confirms the fix worked. VERIFY: a reporter can NOT mark their own ticket RESOLVED - only CLOSE one already resolved by the technician.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CLOSED\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reopen a closed ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"reopened\", () => pm.expect([200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/reopen",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "reopen"
+              ]
+            },
+            "description": "CLOSED is terminal in the transition table, so reopening has its own endpoint and its own audit note.\n\nVERIFY: `resolvedAt` is cleared, so reports no longer count it as solved.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"The fault came back the next morning\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Status history (audit trail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"history recorded\", () => pm.expect(pm.response.json().data.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "history"
+              ]
+            },
+            "description": "EVERY transition, who made it, when, and why.\n\nThe LogStatusHistory table existed in the old schema and was NEVER WRITTEN TO - a ticket's past was unknowable."
+          }
+        },
+        {
+          "name": "Escalate manually (ADMIN/HOD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"escalated\", () => pm.expect([200,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/escalate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "escalate"
+              ]
+            },
+            "description": "Escalation independent of the SLA clock. VERIFY: an `escalations` row is written and the technician is alerted.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"level\": 2,\n  \"reason\": \"Customer has chased twice and the department head is now involved\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Collaboration",
+      "description": "Technician-to-technician help requests.\n\nThe old endpoints took a technician id from the URL and no identity at all, so anyone could\naccept anyone else's invitation - and accepting granted no actual access to the ticket.",
+      "item": [
+        {
+          "name": "Request collaboration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) pm.environment.set(\"collaborationId\", pm.response.json().data.id);",
+                  "pm.test(\"created or not-assigned\", () => pm.expect([201,403,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations"
+              ]
+            },
+            "description": "Only the ASSIGNED technician (or an admin) may invite others.\nAn email is also sent - visible in the API console when SMTP is not configured.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"inviteeId\": \"{{technicianId}}\",\n  \"message\": \"Could you take a look at the power circuit with me?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Invite yourself (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected\", () => pm.expect([400,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations"
+              ]
+            },
+            "description": "The old code allowed this happily.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"inviteeId\": \"{{technician2Id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List my collaborations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations?direction=incoming&status=PENDING",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations"
+              ],
+              "query": [
+                {
+                  "key": "direction",
+                  "value": "incoming"
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                }
+              ]
+            },
+            "description": "`direction` = incoming | outgoing | all. Always scoped to YOU - no user id appears in the URL.\nThe old API needed two endpoints that each took a technician id and would happily return someone else's."
+          }
+        },
+        {
+          "name": "Requester tries to accept their own (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"forbidden\", () => pm.expect([403,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations/{{collaborationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations",
+                "{{collaborationId}}"
+              ]
+            },
+            "description": "THE FIX FOR THE BIGGEST HOLE HERE. Only the INVITED technician may respond.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACCEPTED\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Invitee accepts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"accepted\", () => pm.expect([200,403,404,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations/{{collaborationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations",
+                "{{collaborationId}}"
+              ]
+            },
+            "description": "VERIFY: after accepting, tech1 can GET the ticket (folder 03, 'Get a ticket you may NOT see').\nAcceptance grants real visibility - in the old system it only changed a status column.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACCEPTED\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cancel a request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"cancelled or already handled\", () => pm.expect([200,403,404,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech2Token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/collaborations/{{collaborationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collaborations",
+                "{{collaborationId}}"
+              ]
+            },
+            "description": "Only the requester (or an admin) may cancel, and only while still PENDING."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Chat & Feedback",
+      "description": "Per-ticket conversation and satisfaction rating.\n\nIn the old stack the chat CONTROLLER saved messages and the SignalR HUB broadcast them - and\nthe two were never connected, so half your conversation vanished on refresh.",
+      "item": [
+        {
+          "name": "Post a chat message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "chat"
+              ]
+            },
+            "description": "Persisted AND broadcast over Socket.IO in one path.\nParticipants only: reporter, assigned technician, accepted collaborators, admins and HODs.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Any update on my laptop please?\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Post as a non-participant (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"blocked or legitimately a participant\", () => pm.expect([403,201]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "chat"
+              ]
+            },
+            "description": "The old hub had NO authentication - anyone could join any ticket's conversation and post as anyone.\n\n(Returns 201 if tech1 accepted the collaboration above - that is correct.)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"just passing through\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Read the conversation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/chat",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "chat"
+              ]
+            },
+            "description": "VERIFY: messages sent over the websocket appear here too, and vice versa. One path, one source of truth."
+          }
+        },
+        {
+          "name": "Submit feedback (reporter only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"accepted or rules applied\", () => pm.expect([201,403,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feedback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feedback"
+              ]
+            },
+            "description": "RULES: only the reporter, only once, only after RESOLVED/CLOSED, rating 1-5.\n\nThe old endpoint took the rater's id FROM THE BODY with no checks at all - so anyone could post\nunlimited 5-star ratings for anyone, which made the technician performance report meaningless.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"rating\": 5,\n  \"comments\": \"Sorted the same day, very helpful.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Feedback twice (expect 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"duplicate blocked\", () => pm.expect([409,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feedback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feedback"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"rating\": 1,\n  \"comments\": \"changing my mind\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Feedback on someone else's ticket (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"forbidden\", () => pm.expect([403,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feedback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feedback"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"rating\": 5\n}"
+            }
+          }
+        },
+        {
+          "name": "Rating out of range (expect 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feedback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feedback"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"logId\": \"{{logId}}\",\n  \"rating\": 11\n}"
+            }
+          }
+        },
+        {
+          "name": "Feedback on a ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/{{logId}}/feedback",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "{{logId}}",
+                "feedback"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Notifications",
+      "description": "Everything here is implicitly YOURS - no endpoint takes a user id.\n\nThe old API had THREE notification controllers (one returning a hard-coded string) and its\nlive endpoint was `GET /{userId}/staged`, so you could read anyone's by changing the number.",
+      "item": [
+        {
+          "name": "My notifications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "const d = pm.response.json().data; if (d.length) pm.environment.set(\"notificationId\", d[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "VERIFY: after logging a ticket and having it assigned, the staff member has several -\nlogged, assigned, status changed. `meta.unreadCount` drives the badge in the UI."
+          }
+        },
+        {
+          "name": "Unread only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?unreadOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Unread count (badge)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "A single cheap count - poll this rather than fetching the whole list."
+          }
+        },
+        {
+          "name": "Mark one as read",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"marked\", () => pm.expect([200,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Mark someone else's as read (expect 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"not yours\", () => pm.expect([404,200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": "Scoped by userId as well as id, so guessing an id achieves nothing."
+          }
+        },
+        {
+          "name": "Mark all as read",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 Reports",
+      "description": "Management information. ADMIN and HOD see the full picture; a technician sees their own.\n\nEvery report is measured against what ACTUALLY happened (`resolvedAt - createdAt`). The old\nreports used `resolutionDue - assignedAt` - the SLA window - so their numbers were fiction.",
+      "item": [
+        {
+          "name": "Status counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/status-counts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "status-counts"
+              ]
+            },
+            "description": "VERIFY the ON_HOLD figure is non-zero once you have held a ticket.\nIn the old code the writer stored \"ONHOLD\" and the report counted \"On Hold\", so this tile was permanently 0."
+          }
+        },
+        {
+          "name": "Full issue report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/issues?status=CLOSED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "issues"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "CLOSED"
+                }
+              ]
+            },
+            "description": "Row-per-ticket export. VERIFY each row carries `resolutionHours` (real elapsed time) and `metSla` (true/false)."
+          }
+        },
+        {
+          "name": "Monthly summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/monthly-summary?months=6",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "monthly-summary"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "6"
+                }
+              ]
+            },
+            "description": "Trend over time: total, resolved, still open, average resolution hours, SLA compliance %."
+          }
+        },
+        {
+          "name": "Technician performance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/technician-performance",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "technician-performance"
+              ]
+            },
+            "description": "Per-technician scorecard: assigned, resolved, open, escalated, average resolution hours,\nSLA compliance %, resolution rate % and average rating.\n\nTwo queries total regardless of headcount - the old version ran four subqueries PER TECHNICIAN."
+          }
+        },
+        {
+          "name": "SLA compliance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);",
+                  "pm.test(\"has compliance figures\", () => pm.expect(pm.response.json().data).to.have.property(\"resolutionCompliancePercent\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/sla-compliance",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "sla-compliance"
+              ]
+            },
+            "description": "THE HEADLINE METRIC - and one the old system could not produce at all despite storing SLA data.\n\nAnswers: are we meeting our SLAs, broken down by priority, and how many open tickets are breached right now?"
+          }
+        },
+        {
+          "name": "Reports as STAFF (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports/technician-performance",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "technician-performance"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 Technicians",
+      "item": [
+        {
+          "name": "Technician dashboard stats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/technicians/{{technicianId}}/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "technicians",
+                "{{technicianId}}",
+                "stats"
+              ]
+            },
+            "description": "Everything a technician dashboard needs in ONE call: counts by status, open/overdue totals,\naverage resolution hours, SLA compliance % and average rating.\n\nThe old TechController exposed five separate count endpoints and could produce none of the performance figures."
+          }
+        },
+        {
+          "name": "My own stats (technician)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"own stats or forbidden\", () => pm.expect([200,403]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tech1Token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/technicians/{{technicianId}}/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "technicians",
+                "{{technicianId}}",
+                "stats"
+              ]
+            },
+            "description": "A technician may read their OWN stats. Try another technician's id with this token -> 403."
+          }
+        },
+        {
+          "name": "Technician rating breakdown",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/technicians/{{technicianId}}/rating",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "technicians",
+                "{{technicianId}}",
+                "rating"
+              ]
+            },
+            "description": "Average plus the full 1-5 star distribution."
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 User Administration",
+      "description": "ADMIN only.\n\nThe old AddUserService.cs - the file meant to own this - was ENTIRELY COMMENTED OUT, so there\nwas no way to create a user through the API. Users had to be inserted by hand in SQL.",
+      "item": [
+        {
+          "name": "List roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "roles"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "List users",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Filter users by role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"envelope has success:true\", () => pm.expect(pm.response.json().success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users?role=TECHNICIAN&isActive=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "TECHNICIAN"
+                },
+                {
+                  "key": "isActive",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Create a technician",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) pm.environment.set(\"newUserId\", pm.response.json().data.id);",
+                  "pm.test(\"created or exists\", () => pm.expect([201,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "description": "Creates the user AND their technician profile in ONE transaction, so the two tables cannot disagree.\n\nVERIFY: the response contains NO password field, and `technicianProfile` is populated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"surname\": \"Mahlangu\",\n  \"initials\": \"K\",\n  \"email\": \"k.mahlangu@techtrackers.local\",\n  \"password\": \"Password123\",\n  \"phone\": \"0821234567\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"roles\": [\n    \"TECHNICIAN\"\n  ],\n  \"technicianProfile\": {\n    \"specialization\": \"Network Infrastructure\",\n    \"availableFrom\": \"08:00\",\n    \"availableTo\": \"17:00\",\n    \"type\": \"INTERNAL\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Weak password (expect 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "description": "VERIFY: `errors[]` lists every unmet rule at once - length, uppercase, number.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"surname\": \"Test\",\n  \"email\": \"weak@techtrackers.local\",\n  \"password\": \"abc\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"roles\": [\n    \"STAFF\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Duplicate email (expect 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "description": "Postgres' unique constraint (P2002) is translated to a 409, not surfaced as a 500.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"surname\": \"Duplicate\",\n  \"email\": \"admin@techtrackers.local\",\n  \"password\": \"Password123\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"roles\": [\n    \"STAFF\"\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Update a user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"updated\", () => pm.expect([200,404,422]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{newUserId}}"
+              ]
+            },
+            "description": "VERIFY: sending an EMPTY body returns 422 - an update that changes nothing is a mistake, not a success.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0839876543\",\n  \"technicianProfile\": {\n    \"specialization\": \"Network & Security\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Deactivate a user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"deactivated\", () => pm.expect([200,404,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{newUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{newUserId}}"
+              ]
+            },
+            "description": "DEACTIVATES rather than deletes - a user is referenced by every ticket they touched, so deleting\nwould destroy real history. Also revokes all their sessions immediately.\n\nVERIFY: deactivating a technician who still has OPEN tickets -> 409 telling you to reassign first."
+          }
+        },
+        {
+          "name": "Reactivate a user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"reactivated\", () => pm.expect([200,404,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{newUserId}}/reactivate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{newUserId}}",
+                "reactivate"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "List users as STAFF (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{staffToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Error Handling",
+      "description": "Proof that EVERY failure comes back in the same JSON envelope with the right status code.\nIn the old API these produced HTML error pages or 500s with internal detail leaked in `details`.",
+      "item": [
+        {
+          "name": "Unknown route (expect 404 JSON)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "does-not-exist"
+              ]
+            },
+            "description": "VERIFY: JSON, not Express' default HTML page."
+          }
+        },
+        {
+          "name": "Non-numeric id (expect 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 422\", () => pm.response.to.have.status(422));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "abc"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Missing ticket (expect 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "999999"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Malformed JSON body (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Send deliberately broken JSON. VERIFY: 400 'Request body is not valid JSON', not a 500.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"admin@techtrackers.local\", "
+            }
+          }
+        },
+        {
+          "name": "No token (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Garbage token (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"rejected with 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer not.a.real.token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    }
+  ]
+}

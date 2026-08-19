@@ -1,0 +1,435 @@
+// =============================================================================
+// prisma/schema.prisma
+// -----------------------------------------------------------------------------
+// WHY THIS FILE EXISTS
+//   In the old C# stack the database shape was spread across 15 files in
+//   TechTrackers.Data/Model/*.cs plus TechTrackersDbContext.cs (relationships,
+//   delete behaviour, DbSet names). Reading it meant opening all of them.
+//
+//   Prisma collapses all of that into ONE declarative file. This is the single
+//   source of truth for:
+//     1. The PostgreSQL tables/columns/indexes  (via `prisma migrate`)
+//     2. The generated type-safe query client   (via `prisma generate`)
+//
+// WHAT IT ACHIEVES
+//   - `npx prisma migrate dev` diffs this file against the DB and writes a
+//     versioned SQL migration. Equivalent to `dotnet ef migrations add`.
+//   - `npx prisma generate` regenerates `prisma.log.findMany(...)` etc.
+//   - Enums are enforced BY POSTGRES. The old code used free-text strings and
+//     drifted: "INPROGRESS" vs "IN PROGRESS", "ONHOLD" vs "On Hold" — queries
+//     silently missed rows. That class of bug is now impossible.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================== ENUMS ========================================
+// Replaces the magic strings scattered through the C# services.
+
+enum RoleName {
+  ADMIN
+  HOD // Head of Department
+  TECHNICIAN
+  STAFF
+  EXTERNAL_TECHNICIAN
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum LogStatus {
+  PENDING // logged, no technician yet
+  ASSIGNED // technician assigned, not started
+  IN_PROGRESS // technician actively working
+  ON_HOLD // blocked; requires `note`
+  ESCALATED // SLA breached / escalation raised
+  RESOLVED // technician says fixed
+  CLOSED // staff/admin confirmed and closed
+}
+
+enum NotificationType {
+  INFORMATION
+  WARNING
+  ALERT
+}
+
+enum TechnicianType {
+  INTERNAL
+  EXTERNAL
+}
+
+enum CollaborationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+// ============================== IDENTITY =====================================
+
+model Department {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  // Used to build human-readable ticket references, e.g. "ICT-0042".
+  // In the C# code this was derived at runtime by splitting the department
+  // name on spaces and taking first letters — recomputed on every request and
+  // inconsistent between AdminLogsService and LogService. Now it is stored once.
+  code  String @unique
+  users User[]
+  logs  Log[]
+
+  @@map("departments")
+}
+
+model Role {
+  id          Int        @id @default(autoincrement())
+  name        RoleName   @unique
+  description String     @default("")
+  userRoles   UserRole[]
+
+  @@map("roles")
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  surname      String
+  initials     String  @default("")
+  email        String  @unique
+  // bcrypt hash. The old UserLogService compared `u.PasswordHash == password`
+  // — i.e. passwords were stored and compared in PLAIN TEXT. Fixed here.
+  passwordHash String
+  isActive     Boolean @default(true)
+  phone        String?
+
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  // Many-to-many. The old User.cs had BOTH a single `RoleId` FK *and* a
+  // `UserRoles` collection, and different services trusted different ones
+  // (TechPerformanceReport used `u.RoleId == 3`, AssignTechnicianService used
+  // `u.UserRoles.Any(r => r.RoleId == 3)`). One mechanism only, from now on.
+  roles UserRole[]
+
+  technician Technician?
+
+  logsReported     Log[] @relation("LogReporter")
+  logsAssigned     Log[] @relation("LogTechnician")
+  logsAssignedByMe Log[] @relation("LogAssigner")
+
+  notifications         Notification[]
+  feedback              Feedback[]
+  chatMessages          LogChat[]
+  statusChanges         LogStatusHistory[]
+  escalationsReceived   Escalation[]
+  collaborationsSent    CollaborationRequest[] @relation("CollabRequester")
+  collaborationsInvited CollaborationRequest[] @relation("CollabInvitee")
+  refreshTokens         RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([departmentId])
+  @@map("users")
+}
+
+model UserRole {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  // Stops the same role being attached to a user twice — the old schema
+  // allowed duplicates, which broke role checks that counted rows.
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model Technician {
+  // Shares its primary key with User: a Technician IS a User with extra
+  // fields. Mirrors the one-to-one in the old Technician.cs.
+  userId Int  @id
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  specialization  String?
+  contacts        String?
+  // Stored as minutes-from-midnight (0..1439) instead of C#'s TimeSpan, which
+  // has no clean JSON representation. 08:00 => 480, 17:00 => 1020.
+  availableFrom   Int            @default(480)
+  availableTo     Int            @default(1020)
+  type            TechnicianType @default(INTERNAL)
+  location        String?
+  // Denormalised counter kept in sync by the assignment service so the
+  // "who is least loaded?" query does not need a COUNT over every log.
+  activeTaskCount Int            @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("technicians")
+}
+
+// ============================== TICKETING ====================================
+
+model Category {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+  logs Log[]
+
+  @@map("categories")
+}
+
+model Sla {
+  id                Int      @id @default(autoincrement())
+  // One SLA row per priority level; this is what makes SLA assignment
+  // "automatic" — the ticket's priority selects the row.
+  priority          Priority @unique
+  description       String   @default("")
+  // Minutes allowed to acknowledge/assign the ticket.
+  responseMinutes   Int
+  // Minutes allowed to fully resolve it.
+  resolutionMinutes Int
+
+  logs Log[]
+
+  @@map("slas")
+}
+
+model Log {
+  id Int @id @default(autoincrement())
+
+  // Human reference shown in the UI and emails, e.g. "ICT-0042".
+  // Unique + generated inside a transaction, so two people logging at the
+  // same instant can no longer collide. The old code used
+  // `new Random().Next(1000,9999)` with no uniqueness check at all.
+  reference String @unique
+
+  title       String
+  description String
+  location    String?
+  priority    Priority  @default(MEDIUM)
+  status      LogStatus @default(PENDING)
+  // Reason recorded when a ticket is put ON_HOLD or reopened.
+  note        String?
+
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  // Denormalised from the reporter so department reports stay correct even
+  // if a user later transfers to another department.
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  reportedById Int
+  reportedBy   User @relation("LogReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+
+  technicianId Int?
+  technician   User? @relation("LogTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+
+  assignedById Int?
+  assignedBy   User? @relation("LogAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  slaId Int?
+  sla   Sla? @relation(fields: [slaId], references: [id], onDelete: Restrict)
+
+  // --- SLA clock -------------------------------------------------------
+  // All four are computed once, at creation, from the SLA matched to the
+  // priority. The C# version left resolutionDue NULL until a response
+  // deadline elapsed, which made "is this overdue?" unanswerable for any
+  // unassigned ticket.
+  responseDueAt   DateTime?
+  resolutionDueAt DateTime?
+  // Stamped when a technician is first assigned — this is what "responded"
+  // means, and it is how response-SLA compliance is measured.
+  respondedAt     DateTime?
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  escalationLevel Int       @default(0) // 0 none, 1 warn, 2 urgent, 3 breached
+
+  attachments    LogAttachment[]
+  statusHistory  LogStatusHistory[]
+  chatMessages   LogChat[]
+  notifications  Notification[]
+  feedback       Feedback[]
+  escalations    Escalation[]
+  collaborations CollaborationRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes matching the filters the list endpoints actually run.
+  @@index([status])
+  @@index([technicianId])
+  @@index([reportedById])
+  @@index([departmentId])
+  @@index([resolutionDueAt])
+  @@map("logs")
+}
+
+model LogAttachment {
+  id           Int      @id @default(autoincrement())
+  logId        Int
+  log          Log      @relation(fields: [logId], references: [id], onDelete: Cascade)
+  // File lives on disk (or later, object storage); only the path is in the DB.
+  // The old schema stored the raw bytes in a `varbinary` column and shipped
+  // them base64-encoded inside every list response — a 20-ticket page could
+  // be tens of megabytes.
+  storedName   String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  uploadedAt   DateTime @default(now())
+
+  @@index([logId])
+  @@map("log_attachments")
+}
+
+model LogStatusHistory {
+  id    Int @id @default(autoincrement())
+  logId Int
+  log   Log @relation(fields: [logId], references: [id], onDelete: Cascade)
+
+  fromStatus LogStatus?
+  toStatus   LogStatus
+  note       String?
+
+  changedById Int
+  changedBy   User @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([logId])
+  @@map("log_status_history")
+}
+
+model LogChat {
+  id       Int    @id @default(autoincrement())
+  logId    Int
+  log      Log    @relation(fields: [logId], references: [id], onDelete: Cascade)
+  senderId Int
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  message  String
+
+  createdAt DateTime @default(now())
+
+  @@index([logId])
+  @@map("log_chats")
+}
+
+model Escalation {
+  id    Int @id @default(autoincrement())
+  logId Int
+  log   Log @relation(fields: [logId], references: [id], onDelete: Cascade)
+
+  level  Int
+  reason String
+
+  // Head of Department notified at this level.
+  notifiedUserId Int?
+  notifiedUser   User? @relation(fields: [notifiedUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  // One escalation row per level per ticket: the background job runs every
+  // minute and would otherwise insert a duplicate on every pass.
+  @@unique([logId, level])
+  @@index([logId])
+  @@map("escalations")
+}
+
+model Feedback {
+  id     Int  @id @default(autoincrement())
+  logId  Int
+  log    Log  @relation(fields: [logId], references: [id], onDelete: Cascade)
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  rating   Int // 1..5, enforced in the validator layer
+  comments String?
+
+  createdAt DateTime @default(now())
+
+  // A ticket can only be rated once by a given user.
+  @@unique([logId, userId])
+  @@index([logId])
+  @@map("feedback")
+}
+
+model CollaborationRequest {
+  id    Int @id @default(autoincrement())
+  logId Int
+  log   Log @relation(fields: [logId], references: [id], onDelete: Cascade)
+
+  requesterId Int
+  requester   User @relation("CollabRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  inviteeId   Int
+  invitee     User @relation("CollabInvitee", fields: [inviteeId], references: [id], onDelete: Restrict)
+
+  status  CollaborationStatus @default(PENDING)
+  message String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inviteeId, status])
+  @@map("collaboration_requests")
+}
+
+model Notification {
+  id      Int              @id @default(autoincrement())
+  userId  Int
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logId   Int?
+  log     Log?             @relation(fields: [logId], references: [id], onDelete: Cascade)
+  message String
+  type    NotificationType @default(INFORMATION)
+  isRead  Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+
+  // Serves the "my unread notifications, newest first" query directly.
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// ============================== AUTH SUPPORT =================================
+
+model PasswordResetOtp {
+  id         Int       @id @default(autoincrement())
+  email      String
+  // The OTP is hashed like a password. The old User_Otps table stored the
+  // 6-digit code in clear text, so DB read access = account takeover.
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("password_reset_otps")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
