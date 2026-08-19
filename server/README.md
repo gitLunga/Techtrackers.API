@@ -8,24 +8,37 @@ A ground-up rewrite of the original ASP.NET Core / SQL Server backend, in
 
 ---
 
+> **Want to try the whole system hands-on?**
+> **[docs/WALKTHROUGH.md](docs/WALKTHROUGH.md)** is a scripted 45-minute pass
+> through every feature across all four roles — what to do, what you should see,
+> and what each step proves.
+
 ## Quick start
 
 ```bash
-# 1. Install PostgreSQL 14+ and create the database
-sudo -u postgres psql -c "CREATE USER techtrackers WITH PASSWORD 'techtrackers' CREATEDB;"
-sudo -u postgres psql -c "CREATE DATABASE techtrackers OWNER techtrackers;"
+cd server
+
+# 1. Database — Docker does everything, credentials already match .env.example
+docker compose up -d --wait
 
 # 2. Configure
-cd server
-cp .env.example .env          # then edit DATABASE_URL and the two JWT secrets
+cp .env.example .env          # runs as-is locally; change the JWT secrets before deploying
 
 # 3. Install, migrate, seed
 npm install
 npm run prisma:migrate        # creates every table
 npm run db:seed               # roles, departments, categories, SLAs, test users
+npm run db:seed:demo          # optional: ~40 realistic tickets so no screen is empty
 
 # 4. Run
 npm run dev                   # http://localhost:5000
+```
+
+**No Docker?** Install PostgreSQL 16 yourself and point `DATABASE_URL` at it:
+
+```bash
+sudo -u postgres psql -c "CREATE USER techtrackers WITH PASSWORD 'techtrackers' CREATEDB;"
+sudo -u postgres psql -c "CREATE DATABASE techtrackers OWNER techtrackers;"
 ```
 
 Confirm it is alive:
@@ -161,6 +174,8 @@ The changes that matter most:
 | `npm run prisma:deploy` | Apply existing migrations (production) |
 | `npm run prisma:studio` | Browse the database in a GUI |
 | `npm run db:seed` | Load roles, departments, categories, SLAs, users |
+| `npm run db:seed:demo` | Add ~40 realistic tickets for evaluating the UI and reports |
+| `npm run db:seed:demo -- --clear` | Remove only the demo tickets |
 | `npm run db:reset` | Drop, re-migrate and re-seed (destroys data) |
 | `npm run check:concurrency` | Race-condition regression test (API must be running) |
 
