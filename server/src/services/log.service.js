@@ -50,6 +50,7 @@ const logInclude = {
   category: { select: { id: true, name: true } },
   department: { select: { id: true, name: true, code: true } },
   sla: { select: { id: true, priority: true, responseMinutes: true, resolutionMinutes: true } },
+  asset: { select: { id: true, tag: true, name: true, type: true } },
   reportedBy: { select: { id: true, surname: true, initials: true, email: true } },
   technician: { select: { id: true, surname: true, initials: true, email: true } },
   assignedBy: { select: { id: true, surname: true, initials: true } },
@@ -75,6 +76,9 @@ export function toLogResponse(log, now = new Date()) {
     title: log.title,
     description: log.description,
     location: log.location,
+    latitude: log.latitude,
+    longitude: log.longitude,
+    asset: log.asset ?? null,
     priority: log.priority,
     status: log.status,
     note: log.note,
@@ -225,7 +229,7 @@ export async function assertCanModify(log, user, toStatus = null) {
 }
 
 export async function createLog({ payload, reporterId, files = [] }) {
-  const { title, description, categoryId, priority, location } = payload;
+  const { title, description, categoryId, priority, location, latitude, longitude, assetId } = payload;
 
   // Everything below happens atomically: reference allocation, the ticket,
   // its attachments and its opening history row. The whole transaction is
@@ -242,6 +246,11 @@ export async function createLog({ payload, reporterId, files = [] }) {
       const category = await tx.category.findUnique({ where: { id: categoryId } });
       if (!category) throw ApiError.badRequest(`Category ${categoryId} does not exist`);
 
+      if (assetId) {
+        const asset = await tx.asset.findUnique({ where: { id: assetId } });
+        if (!asset) throw ApiError.badRequest(`Asset ${assetId} does not exist`);
+      }
+
       // --- automated SLA assignment ---
       const sla = await slaService.resolveSlaForPriority(priority, tx);
       const createdAt = new Date();
@@ -255,6 +264,9 @@ export async function createLog({ payload, reporterId, files = [] }) {
           title,
           description,
           location: location ?? null,
+          latitude,
+          longitude,
+          assetId: assetId ?? null,
           priority,
           status: LOG_STATUS.PENDING,
           categoryId,

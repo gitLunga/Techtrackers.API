@@ -21,7 +21,13 @@ export const createLogSchema = {
     description: z.string().trim().min(10, 'Description must be at least 10 characters').max(5000),
     categoryId: id,
     priority: priority.default('MEDIUM'),
+    // Free-text supplementary note ("HR office, 2nd floor") — coordinates
+    // below are the mandatory, auto-captured part of "location".
     location: z.string().trim().max(200).optional(),
+    latitude: z.coerce.number().min(-90).max(90),
+    longitude: z.coerce.number().min(-180).max(180),
+    // Which piece of hardware this is about, if known (e.g. via QR scan).
+    assetId: id.optional(),
   }),
 };
 
