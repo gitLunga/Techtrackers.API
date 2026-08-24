@@ -18,6 +18,9 @@ import { Router } from 'express';
 import authRoutes from './auth.routes.js';
 import logRoutes from './log.routes.js';
 import userRoutes from './user.routes.js';
+import auditRoutes from './audit.routes.js';
+import assetRoutes from './asset.routes.js';
+import pushRoutes from './push.routes.js';
 import { departmentRouter, categoryRouter, slaRouter } from './reference.routes.js';
 import {
   technicianRouter,
@@ -40,6 +43,9 @@ router.use('/collaborations', collaborationRouter);
 router.use('/notifications', notificationRouter);
 router.use('/feedback', feedbackRouter);
 router.use('/reports', reportRouter);
+router.use('/audit-logs', auditRoutes);
+router.use('/assets', assetRoutes);
+router.use('/push', pushRoutes);
 
 /** Self-describing index — GET /api/v1 lists what is mounted. */
 router.get('/', (_req, res) => {
@@ -59,6 +65,9 @@ router.get('/', (_req, res) => {
         notifications: '/notifications',
         feedback: '/feedback',
         reports: '/reports (status-counts, issues, monthly-summary, technician-performance, sla-compliance)',
+        auditLogs: '/audit-logs (admin action log, admin-only)',
+        assets: '/assets (hardware inventory: read by anyone signed in, write by admins)',
+        push: '/push (public-key, subscribe, unsubscribe — browser push notifications)',
       },
     },
   });

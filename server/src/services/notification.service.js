@@ -22,6 +22,14 @@ import prisma from '../config/prisma.js';
 import logger from '../config/logger.js';
 import { NOTIFICATION_TYPE } from '../constants/index.js';
 import { emitToUser } from '../realtime/emitter.js';
+import * as pushService from './push.service.js';
+
+/** Browser push only reaches someone who isn't looking at an open tab. */
+function pushInBackground(userId, logId, message) {
+  pushService
+    .sendPushToUser(userId, { title: 'Techtrackers', body: message, url: logId ? `/tickets/${logId}` : '/' })
+    .catch((error) => logger.error(`Push notification failed for user ${userId}: ${error.message}`));
+}
 
 /** Create one notification and push it live to the recipient if connected. */
 export async function notifyUser({ userId, logId = null, message, type = NOTIFICATION_TYPE.INFORMATION }) {
@@ -32,6 +40,7 @@ export async function notifyUser({ userId, logId = null, message, type = NOTIFIC
   });
 
   emitToUser(userId, 'notification:new', notification);
+  pushInBackground(userId, logId, message);
   return notification;
 }
 
@@ -49,7 +58,10 @@ export async function notifyMany(recipients) {
     })),
   });
 
-  for (const r of rows) emitToUser(r.userId, 'notification:new', r);
+  for (const r of rows) {
+    emitToUser(r.userId, 'notification:new', r);
+    pushInBackground(r.userId, r.logId, r.message);
+  }
   return result;
 }
 

@@ -49,6 +49,13 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().default('Techtrackers <no-reply@techtrackers.local>'),
+
+  // Web Push (browser notifications). Optional, like SMTP above: when unset,
+  // push.service.js logs to the console instead of sending, so the rest of
+  // the notification flow stays fully testable with no external account.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default('mailto:admin@techtrackers.local'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -70,6 +77,7 @@ export const env = {
   isProduction: parsed.data.NODE_ENV === 'production',
   isDevelopment: parsed.data.NODE_ENV === 'development',
   mailEnabled: Boolean(parsed.data.SMTP_HOST),
+  pushEnabled: Boolean(parsed.data.VAPID_PUBLIC_KEY && parsed.data.VAPID_PRIVATE_KEY),
 };
 
 export default env;

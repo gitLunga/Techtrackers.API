@@ -204,6 +204,7 @@ or malformed, and tells you exactly what.
 | `OTP_TTL_MINUTES`, `OTP_MAX_ATTEMPTS` | Password-reset code policy |
 | `SLA_JOB_ENABLED`, `SLA_JOB_INTERVAL_MS` | Escalation sweep. Disable on all but one instance |
 | `SMTP_*`, `MAIL_FROM` | Email. **Leave `SMTP_HOST` empty in development** — emails, including OTP codes, print to the console instead |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Browser push. **Leave both keys empty in development** — pushes print to the console instead. Generate a real pair with `npx web-push generate-vapid-keys` |
 
 ---
 
