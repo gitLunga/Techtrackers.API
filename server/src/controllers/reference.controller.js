@@ -29,13 +29,13 @@ export const getDepartment = asyncHandler(async (req, res) =>
   ok(res, await departmentService.getDepartmentById(req.params.id), 'Department retrieved'));
 
 export const createDepartment = asyncHandler(async (req, res) =>
-  created(res, await departmentService.createDepartment(req.body), 'Department created'));
+  created(res, await departmentService.createDepartment(req.body, req.user.id), 'Department created'));
 
 export const updateDepartment = asyncHandler(async (req, res) =>
-  ok(res, await departmentService.updateDepartment(req.params.id, req.body), 'Department updated'));
+  ok(res, await departmentService.updateDepartment(req.params.id, req.body, req.user.id), 'Department updated'));
 
 export const deleteDepartment = asyncHandler(async (req, res) => {
-  await departmentService.deleteDepartment(req.params.id);
+  await departmentService.deleteDepartment(req.params.id, req.user.id);
   return noContent(res);
 });
 
@@ -47,13 +47,13 @@ export const getCategory = asyncHandler(async (req, res) =>
   ok(res, await categoryService.getCategoryById(req.params.id), 'Category retrieved'));
 
 export const createCategory = asyncHandler(async (req, res) =>
-  created(res, await categoryService.createCategory(req.body), 'Category created'));
+  created(res, await categoryService.createCategory(req.body, req.user.id), 'Category created'));
 
 export const updateCategory = asyncHandler(async (req, res) =>
-  ok(res, await categoryService.updateCategory(req.params.id, req.body), 'Category updated'));
+  ok(res, await categoryService.updateCategory(req.params.id, req.body, req.user.id), 'Category updated'));
 
 export const deleteCategory = asyncHandler(async (req, res) => {
-  await categoryService.deleteCategory(req.params.id);
+  await categoryService.deleteCategory(req.params.id, req.user.id);
   return noContent(res);
 });
 
@@ -69,10 +69,10 @@ export const getSla = asyncHandler(async (req, res) =>
  * the same priority twice should update the target, not fail on a duplicate.
  */
 export const upsertSla = asyncHandler(async (req, res) =>
-  ok(res, await slaService.upsertSla(req.body), 'SLA saved'));
+  ok(res, await slaService.upsertSla(req.body, req.user.id), 'SLA saved'));
 
 export const deleteSla = asyncHandler(async (req, res) => {
-  await slaService.deleteSla(req.params.id);
+  await slaService.deleteSla(req.params.id, req.user.id);
   return noContent(res);
 });
 

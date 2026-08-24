@@ -13,6 +13,7 @@
  */
 import prisma from '../config/prisma.js';
 import ApiError from '../utils/ApiError.js';
+import * as auditService from './audit.service.js';
 
 export async function listCategories() {
   return prisma.category.findMany({
@@ -30,16 +31,26 @@ export async function getCategoryById(id) {
   return category;
 }
 
-export async function createCategory({ name }) {
-  return prisma.category.create({ data: { name: name.trim() } });
+export async function createCategory({ name }, actorId) {
+  const category = await prisma.category.create({ data: { name: name.trim() } });
+  await auditService.recordAction({
+    actorId, action: 'category.create', targetType: 'Category', targetId: category.id,
+    metadata: { name: category.name },
+  });
+  return category;
 }
 
-export async function updateCategory(id, { name }) {
+export async function updateCategory(id, { name }, actorId) {
   await getCategoryById(id);
-  return prisma.category.update({ where: { id }, data: { name: name.trim() } });
+  const category = await prisma.category.update({ where: { id }, data: { name: name.trim() } });
+  await auditService.recordAction({
+    actorId, action: 'category.update', targetType: 'Category', targetId: id,
+    metadata: { name: category.name },
+  });
+  return category;
 }
 
-export async function deleteCategory(id) {
+export async function deleteCategory(id, actorId) {
   const category = await getCategoryById(id);
   if (category._count.logs > 0) {
     throw ApiError.conflict(
@@ -47,6 +58,10 @@ export async function deleteCategory(id) {
     );
   }
   await prisma.category.delete({ where: { id } });
+  await auditService.recordAction({
+    actorId, action: 'category.delete', targetType: 'Category', targetId: id,
+    metadata: { name: category.name },
+  });
 }
 
 export default { listCategories, getCategoryById, createCategory, updateCategory, deleteCategory };

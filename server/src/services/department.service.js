@@ -15,6 +15,7 @@
  */
 import prisma from '../config/prisma.js';
 import ApiError from '../utils/ApiError.js';
+import * as auditService from './audit.service.js';
 
 /** "Information Technology" -> "IT"; used only to suggest a code. */
 function deriveCode(name) {
@@ -43,21 +44,31 @@ export async function getDepartmentById(id) {
   return department;
 }
 
-export async function createDepartment({ name, code }) {
-  return prisma.department.create({
+export async function createDepartment({ name, code }, actorId) {
+  const department = await prisma.department.create({
     data: { name: name.trim(), code: (code ?? deriveCode(name)).toUpperCase() },
   });
+  await auditService.recordAction({
+    actorId, action: 'department.create', targetType: 'Department', targetId: department.id,
+    metadata: { name: department.name, code: department.code },
+  });
+  return department;
 }
 
-export async function updateDepartment(id, { name, code }) {
+export async function updateDepartment(id, { name, code }, actorId) {
   await getDepartmentById(id);
-  return prisma.department.update({
+  const department = await prisma.department.update({
     where: { id },
     data: {
       ...(name ? { name: name.trim() } : {}),
       ...(code ? { code: code.toUpperCase() } : {}),
     },
   });
+  await auditService.recordAction({
+    actorId, action: 'department.update', targetType: 'Department', targetId: id,
+    metadata: { name: department.name, code: department.code },
+  });
+  return department;
 }
 
 /**
@@ -65,7 +76,7 @@ export async function updateDepartment(id, { name, code }) {
  * called Remove() unconditionally, so it either threw a raw SQL FK error back
  * at the client as a 500, or orphaned rows where the FK was not enforced.
  */
-export async function deleteDepartment(id) {
+export async function deleteDepartment(id, actorId) {
   const department = await getDepartmentById(id);
   if (department._count.users > 0 || department._count.logs > 0) {
     throw ApiError.conflict(
@@ -73,6 +84,10 @@ export async function deleteDepartment(id) {
     );
   }
   await prisma.department.delete({ where: { id } });
+  await auditService.recordAction({
+    actorId, action: 'department.delete', targetType: 'Department', targetId: id,
+    metadata: { name: department.name },
+  });
 }
 
 export default {

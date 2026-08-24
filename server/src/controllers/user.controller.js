@@ -18,7 +18,7 @@ import getPagination from '../utils/pagination.js';
 import * as userService from '../services/user.service.js';
 
 export const createUser = asyncHandler(async (req, res) => {
-  const user = await userService.createUser(req.body);
+  const user = await userService.createUser(req.body, req.user.id);
   return created(res, user, `User ${user.email} created`);
 });
 
@@ -39,7 +39,7 @@ export const getUser = asyncHandler(async (req, res) => {
 });
 
 export const updateUser = asyncHandler(async (req, res) => {
-  const user = await userService.updateUser(req.params.id, req.body);
+  const user = await userService.updateUser(req.params.id, req.body, req.user.id);
   return ok(res, user, 'User updated');
 });
 
@@ -49,7 +49,7 @@ export const deactivateUser = asyncHandler(async (req, res) => {
 });
 
 export const reactivateUser = asyncHandler(async (req, res) => {
-  const result = await userService.reactivateUser(req.params.id);
+  const result = await userService.reactivateUser(req.params.id, req.user.id);
   return ok(res, null, result.message);
 });
 

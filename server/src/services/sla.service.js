@@ -32,6 +32,7 @@
 import prisma from '../config/prisma.js';
 import ApiError from '../utils/ApiError.js';
 import { ESCALATION_THRESHOLDS, LOG_STATUS } from '../constants/index.js';
+import * as auditService from './audit.service.js';
 
 const MINUTE_MS = 60_000;
 
@@ -67,23 +68,33 @@ export function computeDeadlines(sla, from = new Date()) {
   };
 }
 
-export async function upsertSla({ priority, description, responseMinutes, resolutionMinutes }) {
+export async function upsertSla({ priority, description, responseMinutes, resolutionMinutes }, actorId) {
   if (responseMinutes >= resolutionMinutes) {
     throw ApiError.badRequest('responseMinutes must be smaller than resolutionMinutes');
   }
-  return prisma.sla.upsert({
+  const sla = await prisma.sla.upsert({
     where: { priority },
     update: { description, responseMinutes, resolutionMinutes },
     create: { priority, description, responseMinutes, resolutionMinutes },
   });
+  await auditService.recordAction({
+    actorId, action: 'sla.upsert', targetType: 'Sla', targetId: sla.id,
+    metadata: { priority, responseMinutes, resolutionMinutes },
+  });
+  return sla;
 }
 
-export async function deleteSla(id) {
+export async function deleteSla(id, actorId) {
   const inUse = await prisma.log.count({ where: { slaId: id } });
   if (inUse > 0) {
     throw ApiError.conflict(`This SLA is attached to ${inUse} ticket(s) and cannot be deleted`);
   }
+  const sla = await getSlaById(id);
   await prisma.sla.delete({ where: { id } });
+  await auditService.recordAction({
+    actorId, action: 'sla.delete', targetType: 'Sla', targetId: id,
+    metadata: { priority: sla.priority },
+  });
 }
 
 /**

@@ -19,6 +19,7 @@ import ApiError from '../utils/ApiError.js';
 import { hashPassword } from '../utils/password.js';
 import { publicUser } from './auth.service.js';
 import { ROLES, TECHNICIAN_TYPE } from '../constants/index.js';
+import * as auditService from './audit.service.js';
 
 const userInclude = {
   department: true,
@@ -39,7 +40,7 @@ function timeToMinutes(value, fallback) {
   return minutes;
 }
 
-export async function createUser(payload) {
+export async function createUser(payload, actorId) {
   const {
     surname, initials, email, password, phone,
     departmentId, roles, technicianProfile,
@@ -87,6 +88,11 @@ export async function createUser(payload) {
     include: userInclude,
   });
 
+  await auditService.recordAction({
+    actorId, action: 'user.create', targetType: 'User', targetId: user.id,
+    metadata: { email: user.email, roles },
+  });
+
   return { ...publicUser(user), technicianProfile: user.technician ?? null };
 }
 
@@ -120,7 +126,7 @@ export async function getUserById(id) {
   return { ...publicUser(user), technicianProfile: user.technician ?? null };
 }
 
-export async function updateUser(id, payload) {
+export async function updateUser(id, payload, actorId) {
   const existing = await prisma.user.findUnique({ where: { id }, include: userInclude });
   if (!existing) throw ApiError.notFound(`User ${id} not found`);
 
@@ -170,6 +176,11 @@ export async function updateUser(id, payload) {
     return tx.user.update({ where: { id }, data, include: userInclude });
   });
 
+  await auditService.recordAction({
+    actorId, action: 'user.update', targetType: 'User', targetId: id,
+    metadata: { fields: Object.keys(payload) },
+  });
+
   return { ...publicUser(user), technicianProfile: user.technician ?? null };
 }
 
@@ -203,13 +214,24 @@ export async function deactivateUser(id, actorId) {
     }),
   ]);
 
+  await auditService.recordAction({
+    actorId, action: 'user.deactivate', targetType: 'User', targetId: id,
+    metadata: { email: user.email },
+  });
+
   return { message: 'User deactivated and signed out of all devices' };
 }
 
-export async function reactivateUser(id) {
+export async function reactivateUser(id, actorId) {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw ApiError.notFound(`User ${id} not found`);
   await prisma.user.update({ where: { id }, data: { isActive: true } });
+
+  await auditService.recordAction({
+    actorId, action: 'user.reactivate', targetType: 'User', targetId: id,
+    metadata: { email: user.email },
+  });
+
   return { message: 'User reactivated' };
 }
 
