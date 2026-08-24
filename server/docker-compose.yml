@@ -1,0 +1,46 @@
+# docker-compose.yml
+# -----------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+#   Installing PostgreSQL by hand is the single biggest thing standing between a
+#   fresh clone and a running system — different installer per OS, a service to
+#   configure, a superuser password to remember, and a `psql` incantation to
+#   create the database and role.
+#
+# WHAT IT ACHIEVES
+#   `docker compose up -d` gives you a PostgreSQL 16 with the database, user and
+#   password already matching the DATABASE_URL in .env.example. Nothing to
+#   configure.
+#
+#   The healthcheck means `docker compose up -d --wait` only returns once the
+#   database is genuinely accepting connections, so a migration run straight
+#   afterwards cannot race it.
+#
+#   Data lives in a named volume, so stopping the container keeps your tickets.
+#   `docker compose down -v` throws them away and gives you a clean slate.
+# Explicit project name so `docker compose ps` and the container names read
+# clearly regardless of the folder this is checked out into.
+name: techtrackers
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: techtrackers-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: techtrackers
+      POSTGRES_PASSWORD: techtrackers
+      POSTGRES_DB: techtrackers
+    ports:
+      # Host 5432. If something already uses it, change the LEFT number here
+      # and in DATABASE_URL to match.
+      - "5432:5432"
+    volumes:
+      - techtrackers_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U techtrackers -d techtrackers"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  techtrackers_pgdata:
