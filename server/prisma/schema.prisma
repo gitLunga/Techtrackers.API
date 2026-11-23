@@ -85,15 +85,15 @@ enum AssetStatus {
 // ============================== IDENTITY =====================================
 
 model Department {
-  id    Int    @id @default(autoincrement())
-  name  String @unique
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
   // Used to build human-readable ticket references, e.g. "ICT-0042".
   // In the C# code this was derived at runtime by splitting the department
   // name on spaces and taking first letters — recomputed on every request and
   // inconsistent between AdminLogsService and LogService. Now it is stored once.
-  code  String @unique
-  users User[]
-  logs  Log[]
+  code   String  @unique
+  users  User[]
+  logs   Log[]
   assets Asset[]
 
   @@map("departments")
@@ -144,7 +144,7 @@ model User {
   refreshTokens         RefreshToken[]
   auditLogs             AuditLog[]
   assignedAssets        Asset[]
-  pushSubscriptions      PushSubscription[]
+  pushSubscriptions     PushSubscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,18 +222,24 @@ model Log {
   // `new Random().Next(1000,9999)` with no uniqueness check at all.
   reference String @unique
 
-  title       String
-  description String
-  location    String?
-  // Mandatory GPS capture at creation time (see LogIssue.jsx) — `location`
-  // above stays as a supplementary free-text note ("HR office, 2nd floor"),
-  // since coordinates alone don't convey that.
-  latitude    Float?
-  longitude   Float?
-  priority    Priority  @default(MEDIUM)
-  status      LogStatus @default(PENDING)
+  title            String
+  description      String
+  location         String?
+  // Best-effort GPS capture at creation time. Nullable and OPTIONAL: browsers
+  // only expose geolocation on a secure context, and permission is routinely
+  // denied, so a ticket must never depend on it. `location` above stays as the
+  // supplementary free-text note ("HR office, 2nd floor"), since coordinates
+  // alone don't convey that.
+  latitude         Float?
+  longitude        Float?
+  // Metres of uncertainty the browser reported. A desktop Wi-Fi fix can be
+  // kilometres out; storing it lets the UI mark a reading as unreliable
+  // instead of presenting every fix as equally precise.
+  locationAccuracy Float?
+  priority         Priority  @default(MEDIUM)
+  status           LogStatus @default(PENDING)
   // Reason recorded when a ticket is put ON_HOLD or reopened.
-  note        String?
+  note             String?
 
   categoryId Int
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
@@ -497,7 +503,7 @@ model Asset {
   department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
 
   assignedToId Int?
-  assignedTo   User?      @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedTo   User? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
 
   logs Log[]
 

@@ -18,6 +18,7 @@ import webpush from 'web-push';
 import prisma from '../config/prisma.js';
 import env from '../config/env.js';
 import logger from '../config/logger.js';
+import ApiError from '../utils/ApiError.js';
 
 let configured = false;
 
@@ -30,7 +31,11 @@ function ensureConfigured() {
 export async function subscribe(userId, subscription) {
   const { endpoint, keys } = subscription;
   if (!endpoint || !keys?.p256dh || !keys?.auth) {
-    throw new Error('Invalid push subscription payload');
+    // A bare Error falls through to the generic 500 handler. This is a
+    // malformed request from the client, so it must read as a 400.
+    throw ApiError.badRequest(
+      'Invalid push subscription: endpoint, keys.p256dh and keys.auth are all required',
+    );
   }
 
   return prisma.pushSubscription.upsert({

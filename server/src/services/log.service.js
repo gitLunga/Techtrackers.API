@@ -78,6 +78,22 @@ export function toLogResponse(log, now = new Date()) {
     location: log.location,
     latitude: log.latitude,
     longitude: log.longitude,
+    locationAccuracy: log.locationAccuracy,
+    /**
+     * `null` when the browser could not provide a fix, which is routine.
+     * `isPrecise` lets the UI distinguish a doorway-accurate reading from a
+     * desktop Wi-Fi guess that could be kilometres out, rather than showing
+     * both as equally authoritative.
+     */
+    coordinates:
+      log.latitude != null && log.longitude != null
+        ? {
+            latitude: log.latitude,
+            longitude: log.longitude,
+            accuracyMetres: log.locationAccuracy ?? null,
+            isPrecise: log.locationAccuracy == null ? null : log.locationAccuracy <= 100,
+          }
+        : null,
     asset: log.asset ?? null,
     priority: log.priority,
     status: log.status,
@@ -229,7 +245,7 @@ export async function assertCanModify(log, user, toStatus = null) {
 }
 
 export async function createLog({ payload, reporterId, files = [] }) {
-  const { title, description, categoryId, priority, location, latitude, longitude, assetId } = payload;
+  const { title, description, categoryId, priority, location, latitude, longitude, locationAccuracy, assetId } = payload;
 
   // Everything below happens atomically: reference allocation, the ticket,
   // its attachments and its opening history row. The whole transaction is
@@ -264,8 +280,10 @@ export async function createLog({ payload, reporterId, files = [] }) {
           title,
           description,
           location: location ?? null,
-          latitude,
-          longitude,
+          // All three may legitimately be undefined — capture is best effort.
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+          locationAccuracy: locationAccuracy ?? null,
           assetId: assetId ?? null,
           priority,
           status: LOG_STATUS.PENDING,

@@ -21,11 +21,28 @@ export const createLogSchema = {
     description: z.string().trim().min(10, 'Description must be at least 10 characters').max(5000),
     categoryId: id,
     priority: priority.default('MEDIUM'),
-    // Free-text supplementary note ("HR office, 2nd floor") — coordinates
-    // below are the mandatory, auto-captured part of "location".
+    // Free-text note ("HR office, 2nd floor"). Coordinates below are captured
+    // automatically when the browser allows it.
     location: z.string().trim().max(200).optional(),
-    latitude: z.coerce.number().min(-90).max(90),
-    longitude: z.coerce.number().min(-180).max(180),
+    /**
+     * OPTIONAL, deliberately.
+     *
+     * These were briefly required, which made logging a ticket impossible
+     * whenever location capture failed — and it fails often:
+     *   - `navigator.geolocation` only works on a secure context, so over
+     *     plain http:// on a LAN it fails for EVERY user;
+     *   - a denied permission, a locked-down lab machine, or a desktop with
+     *     no GPS all produce nothing;
+     *   - the person whose machine is broken is the least likely to get a
+     *     clean fix.
+     *
+     * Blocking fault reporting on a best-effort signal is the wrong trade for
+     * a service desk. Capture it when it is there; never depend on it.
+     */
+    latitude: z.coerce.number().min(-90).max(90).optional(),
+    longitude: z.coerce.number().min(-180).max(180).optional(),
+    /** Metres of uncertainty the browser reported, so a bad fix is visible. */
+    locationAccuracy: z.coerce.number().min(0).max(100000).optional(),
     // Which piece of hardware this is about, if known (e.g. via QR scan).
     assetId: id.optional(),
   }),
