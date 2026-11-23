@@ -13,7 +13,7 @@
  *   user id. The old `GET /{userId}/staged` took one from the URL.
  */
 import asyncHandler from '../utils/asyncHandler.js';
-import { ok, paginated } from '../utils/apiResponse.js';
+import { ok } from '../utils/apiResponse.js';
 import ApiError from '../utils/ApiError.js';
 import getPagination from '../utils/pagination.js';
 import * as notificationService from '../services/notification.service.js';

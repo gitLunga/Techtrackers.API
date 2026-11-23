@@ -42,7 +42,6 @@ const between = (min, max) => min + Math.floor(rand() * (max - min + 1));
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
 
 /* ---- believable university IT tickets ------------------------------------ */
 const TICKETS = [

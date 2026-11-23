@@ -3,6 +3,14 @@
 Every endpoint, what to send, what you should get back, and **what to look at to confirm it
 actually worked**.
 
+This page is the hand-driven tour. For the automated suites that run on every push — unit
+tests, integration tests, and how to add to them — see **[AUTOMATED-TESTS.md](AUTOMATED-TESTS.md)**.
+The whole collection below can also be run headless in about six seconds:
+
+```bash
+npx newman run docs/Techtrackers.postman_collection.json --env-var baseUrl=http://localhost:5000
+```
+
 ---
 
 ## Setup (once)
@@ -540,6 +548,12 @@ compliance %, average rating: **one call**.
 | `PATCH` with an empty body | `422` — an update that changes nothing is a mistake |
 | `DELETE` a technician with open tickets | `409` telling you to reassign first |
 | Any of these as `{{staffToken}}` | `403` |
+
+In the collection this email carries `{{$timestamp}}`, so the request creates a genuinely new
+user every run. With a fixed address the second run of the collection returns `409`, the
+`newUserId` variable is never captured, and the three requests after it (`PATCH`, `DELETE`,
+`reactivate`) send the literal `{{newUserId}}` and fail on validation instead of testing
+anything — which is exactly what happened before it was fixed.
 
 **Verify:** the response contains no password field, and `DELETE` **deactivates** rather than
 deletes — a user is referenced by every ticket they touched, so deleting would destroy history.

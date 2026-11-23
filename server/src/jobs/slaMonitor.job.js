@@ -31,6 +31,12 @@ async function tick() {
     logger.warn('SLA sweep still running from the previous tick; skipping this one');
     return;
   }
+  // Not a race, despite what require-atomic-updates reports on the reset in
+  // `finally` below. There is no await between the `if (isRunning) return`
+  // above and this assignment, and Node runs one tick at a time, so the check
+  // and the set are atomic. That is precisely what stops two sweeps
+  // overlapping if one runs long; clearing the flag afterwards is the only
+  // correct place for it.
   isRunning = true;
   try {
     await runEscalationSweep(new Date());
@@ -39,6 +45,7 @@ async function tick() {
     // would exit permanently on an unhandled exception.
     logger.error(`SLA monitor sweep failed: ${error.message}`, { stack: error.stack });
   } finally {
+    // eslint-disable-next-line require-atomic-updates
     isRunning = false;
   }
 }

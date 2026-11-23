@@ -38,7 +38,7 @@ import * as notificationService from './notification.service.js';
 import { emitToLog } from '../realtime/emitter.js';
 
 /** Escalate one ticket to `level`, if it is not already there. Idempotent. */
-async function escalateTo(log, level, now) {
+async function escalateTo(log, level, _now) {
   const threshold = ESCALATION_THRESHOLDS.find((t) => t.level === level);
   const reason = `SLA escalation level ${level}: ${threshold.label} for ticket ${log.reference}.`;
 

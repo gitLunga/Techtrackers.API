@@ -11,6 +11,8 @@
  *   console.log. Because every call site goes through here, swapping in a real
  *   logger later (pino, winston, a hosted log sink) is a one-file change.
  */
+/* eslint-disable no-console -- This file is the console wrapper every other
+   module logs through; the calls below are its implementation. */
 import env from './env.js';
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: 99 };

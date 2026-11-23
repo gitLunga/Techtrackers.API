@@ -51,6 +51,10 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
   if (!user) throw ApiError.unauthorized('The account for this token no longer exists');
   if (!user.isActive) throw ApiError.forbidden('This account has been deactivated');
 
+  // `req` belongs to this one request and nothing else writes req.user, so
+  // there is no shared state to race over. require-atomic-updates cannot see
+  // that Express gives every request its own object.
+  // eslint-disable-next-line require-atomic-updates
   req.user = {
     id: user.id,
     email: user.email,

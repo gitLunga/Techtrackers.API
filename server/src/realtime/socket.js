@@ -46,6 +46,10 @@ export function createSocketServer(httpServer) {
       });
       if (!user || !user.isActive) return next(new Error('Account not found or deactivated'));
 
+      // `socket` belongs to this one connection and nothing else writes
+      // socket.user, so there is no shared state to race over. The same false
+      // positive as in authenticate.js.
+      // eslint-disable-next-line require-atomic-updates
       socket.user = {
         id: user.id,
         name: `${user.initials} ${user.surname}`.trim(),

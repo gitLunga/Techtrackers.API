@@ -2360,14 +2360,14 @@
           }
         },
         {
-          "name": "Uninvolved user changes status (expect 403)",
+          "name": "Uninvolved user changes status (expect 404)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"forbidden or legitimately allowed\", () => pm.expect([403,200,409]).to.include(pm.response.code));"
+                  "pm.test(\"not found, so the ticket's existence is not disclosed\", () => pm.expect([404,200,409]).to.include(pm.response.code));"
                 ]
               }
             }
@@ -2397,7 +2397,7 @@
                 "status"
               ]
             },
-            "description": "A technician with no connection to this ticket cannot drive it.\nOnly the assigned technician, an accepted collaborator, the reporter (to close a RESOLVED ticket),\nan ADMIN, or the ticket's own HOD may change status.",
+            "description": "A technician with no connection to this ticket cannot drive it.\nOnly the assigned technician, an accepted collaborator, the reporter (to close a RESOLVED ticket),\nan ADMIN, or the ticket's own HOD may change status.\n\nThe answer is 404, not 403, and the difference is deliberate: a caller who cannot SEE the ticket\nmust not be able to learn that it exists. Were this 403 while GET /logs/:id returns 404, the two\ncodes together would let any account enumerate valid ticket ids.\n403 is reserved for the case where the caller can see the ticket and still may not act -- the\nreporter trying to mark their own fault RESOLVED.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"CLOSED\"\n}"
@@ -3932,8 +3932,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 201) pm.environment.set(\"newUserId\", pm.response.json().data.id);",
-                  "pm.test(\"created or exists\", () => pm.expect([201,409]).to.include(pm.response.code));"
+                  "pm.test(\"created\", () => pm.response.to.have.status(201));",
+                  "// Captured here and used by Update / Deactivate / Reactivate. If this is",
+                  "// ever missed those three requests test nothing, so the assertion above",
+                  "// requires 201 rather than tolerating a 409 from a previous run.",
+                  "pm.environment.set(\"newUserId\", pm.response.json().data.id);"
                 ]
               }
             }
@@ -3961,10 +3964,10 @@
                 "users"
               ]
             },
-            "description": "Creates the user AND their technician profile in ONE transaction, so the two tables cannot disagree.\n\nVERIFY: the response contains NO password field, and `technicianProfile` is populated.",
+            "description": "Creates the user AND their technician profile in ONE transaction, so the two tables cannot disagree.\n\nVERIFY: the response contains NO password field, and `technicianProfile` is populated.\n\nThe email carries {{$timestamp}} so the collection can be run repeatedly against the same\ndatabase. With a fixed address the second run returns 409, newUserId is never captured, and\nUpdate / Deactivate / Reactivate below request the literal \"{{newUserId}}\" and fail on\nvalidation instead of testing anything.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"surname\": \"Mahlangu\",\n  \"initials\": \"K\",\n  \"email\": \"k.mahlangu@techtrackers.local\",\n  \"password\": \"Password123\",\n  \"phone\": \"0821234567\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"roles\": [\n    \"TECHNICIAN\"\n  ],\n  \"technicianProfile\": {\n    \"specialization\": \"Network Infrastructure\",\n    \"availableFrom\": \"08:00\",\n    \"availableTo\": \"17:00\",\n    \"type\": \"INTERNAL\"\n  }\n}"
+              "raw": "{\n  \"surname\": \"Mahlangu\",\n  \"initials\": \"K\",\n  \"email\": \"k.mahlangu+{{$timestamp}}@techtrackers.local\",\n  \"password\": \"Password123\",\n  \"phone\": \"0821234567\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"roles\": [\n    \"TECHNICIAN\"\n  ],\n  \"technicianProfile\": {\n    \"specialization\": \"Network Infrastructure\",\n    \"availableFrom\": \"08:00\",\n    \"availableTo\": \"17:00\",\n    \"type\": \"INTERNAL\"\n  }\n}"
             }
           }
         },

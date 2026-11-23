@@ -422,6 +422,15 @@ export async function changeStatus({ logId, toStatus, note, actor, systemGenerat
   if (!existing) throw ApiError.notFound(`Ticket ${logId} not found`);
 
   if (!systemGenerated) {
+    // Visibility BEFORE permission, deliberately. Without this the route
+    // answers 403 for a ticket the caller cannot even see, while GET /logs/:id
+    // answers 404 — and that difference is an id oracle: anyone with an
+    // account could probe which ticket ids exist by watching which code came
+    // back. Checking visibility first makes an invisible ticket indistinguish-
+    // able from a missing one, and leaves 403 to mean what it should: you can
+    // see this ticket, and you still may not do that to it (the reporter
+    // trying to resolve their own fault).
+    await assertCanView(logId, actor);
     await assertCanModify(existing, actor, toStatus);
 
     const allowed = STATUS_TRANSITIONS[existing.status] ?? [];

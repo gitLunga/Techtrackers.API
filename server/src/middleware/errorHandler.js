@@ -63,7 +63,6 @@ function translatePrismaError(error) {
 // Express identifies error middleware by its FOUR arguments. `next` must stay
 // in the signature even though it is unused, or Express treats this as a
 // normal handler and errors sail past it.
-// eslint-disable-next-line no-unused-vars
 export function errorHandler(error, req, res, _next) {
   let apiError =
     error instanceof ApiError

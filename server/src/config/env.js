@@ -15,6 +15,9 @@
  *   process.env, so config is centralised and already coerced to real types
  *   (numbers are numbers, lists are arrays, booleans are booleans).
  */
+/* eslint-disable no-console -- This file validates configuration BEFORE the
+   logger is constructed, so console is the only output available. Using the
+   logger here would be a circular import. */
 import 'dotenv/config';
 import { z } from 'zod';
 

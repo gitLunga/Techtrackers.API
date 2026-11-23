@@ -1,0 +1,189 @@
+# .github/workflows/ci.yml
+# -----------------------------------------------------------------------------
+# WHY THIS FILE EXISTS
+#   Up to now every check in this repository was something a person had to
+#   remember to run. That works until the week it matters. This runs lint, the
+#   unit tests, the integration tests, the Postman suite and the concurrency
+#   check on every push and every pull request, so a regression is caught by
+#   the machine rather than noticed in a demo.
+#
+# WHY IT IS SPLIT INTO TWO JOBS
+#   `quick` needs no database and finishes in well under a minute, so a typo or
+#   a broken SLA calculation fails fast and cheaply. `full` boots PostgreSQL and
+#   the service itself, which is slower but is the only way to prove the routes,
+#   the status codes and the reference-allocation lock still behave.
+#
+#   They run in parallel; `full` does not wait for `quick`. A failure in either
+#   fails the run, and seeing both results at once is more useful than seeing
+#   the first one and guessing about the second.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  # Lets a maintainer re-run the suite from the Actions tab without pushing a
+  # commit, which is what you want when a failure looks environmental.
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first run. Without this, a busy
+# branch queues runs for commits nobody is waiting on any more.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # Every path below is relative to the service, which lives in a subfolder.
+    working-directory: server
+
+jobs:
+  quick:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+
+    # The unit tests import the service's modules, and config/env.js refuses to
+    # load without a valid configuration — deliberately, so a missing secret
+    # fails at boot rather than at 2am. Nothing here connects to a database
+    # (Prisma's client is lazy and the tests mock it), so the URL only has to
+    # be well formed. These are throwaway values, not secrets.
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://unused:unused@localhost:5432/unused?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-not-used-anywhere-else-32
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-used-anywhere-else-32
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+      # fails if the lockfile and package.json disagree, which is itself a bug
+      # worth failing on.
+      - run: npm ci
+
+      # Prisma's generated client is imported by the code under test, so it has
+      # to exist before anything is linted or run.
+      - run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  full:
+    name: Integration, API suite and concurrency
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: techtrackers
+          POSTGRES_PASSWORD: techtrackers
+          POSTGRES_DB: techtrackers
+        ports: ['5432:5432']
+        # Without this the first migration can race the server's startup and
+        # fail with "the database system is starting up".
+        options: >-
+          --health-cmd "pg_isready -U techtrackers"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://techtrackers:techtrackers@localhost:5432/techtrackers?schema=public
+      # A separate database for the integration tests, which truncate every
+      # table. The suite refuses to run if this matches DATABASE_URL.
+      TEST_DATABASE_URL: postgresql://techtrackers:techtrackers@localhost:5432/techtrackers_test?schema=public
+      # Throwaway, used only by the migration drift check below.
+      SHADOW_DATABASE_URL: postgresql://techtrackers:techtrackers@localhost:5432/techtrackers_shadow?schema=public
+      # The `postgres` database, for the one statement that has to be issued
+      # from outside the database being created.
+      MAINTENANCE_URL: postgresql://techtrackers:techtrackers@localhost:5432/postgres
+      # CI-only values. Real secrets never belong in a workflow file; these
+      # exist solely so env validation passes and tokens can be signed.
+      NODE_ENV: test
+      PORT: 5000
+      JWT_ACCESS_SECRET: ci-access-secret-not-used-anywhere-else-32
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-used-anywhere-else-32
+      # The background sweep is tested directly; leaving it running during the
+      # API suite would change ticket state underneath the assertions.
+      SLA_JOB_ENABLED: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      # Explicit rather than relying on @prisma/client's own postinstall hook,
+      # which does not run when the install is served entirely from cache.
+      - run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Proves the schema and the migration history have not drifted apart —
+      # the failure mode where migrations apply cleanly to an empty database
+      # but no longer describe schema.prisma, so the next `migrate dev` on a
+      # developer's machine invents a migration nobody intended.
+      #
+      # It needs its own throwaway database: `migrate diff` replays the whole
+      # migration history into the shadow database and drops it afterwards, so
+      # pointing it at the test database would fight the integration suite.
+      - name: Create the shadow database for the drift check
+        run: psql "$MAINTENANCE_URL" -c 'CREATE DATABASE techtrackers_shadow'
+
+      - name: Check migrations match the schema
+        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW_DATABASE_URL" --exit-code
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      # The API suite and the concurrency check both drive the running service
+      # over HTTP, so from here on the server is up and the database carries
+      # the reference seed data.
+      - name: Seed the development data the API suite expects
+        run: npm run db:seed
+
+      - name: Start the API
+        run: |
+          npm start > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/health > /dev/null; then
+              echo "API healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy; last 50 lines of its log:"
+          tail -50 /tmp/api.log
+          exit 1
+
+      - name: Postman suite
+        run: npx newman run docs/Techtrackers.postman_collection.json --env-var baseUrl=http://localhost:5000 --reporters cli --reporter-cli-no-console
+
+      - name: Concurrency check
+        run: npm run check:concurrency
+
+      # Uploaded only on failure, because a passing run's log tells nobody
+      # anything and the artifact storage is not free.
+      - name: Upload the API log if anything failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-log
+          path: /tmp/api.log
+          retention-days: 7
