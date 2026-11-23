@@ -1132,42 +1132,6 @@
               "raw": "{\n  \"priority\": \"LOW\",\n  \"responseMinutes\": 9000,\n  \"resolutionMinutes\": 60\n}"
             }
           }
-        },
-        {
-          "name": "Delete a category in use (expect 409)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"blocked or gone\", () => pm.expect([409,204,404]).to.include(pm.response.code));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/categories/{{categoryId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "categories",
-                "{{categoryId}}"
-              ]
-            },
-            "description": "Reference data attached to real tickets cannot be deleted.\nThe old DeleteDepartment called Remove() unconditionally and returned a raw SQL foreign-key error as a 500."
-          }
         }
       ]
     },
@@ -1762,6 +1726,45 @@
               ]
             },
             "description": "Streams the file from disk with its original filename. Run the attachment upload request first."
+          }
+        },
+        {
+          "name": "Delete a category in use (expect 409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Exactly 409. A 204 here means the referential guard is gone, which is a",
+                  "// real bug AND would destroy the category the rest of the run needs.",
+                  "pm.test(\"blocked, because tickets reference it\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"envelope has success:false\", () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories/{{categoryId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories",
+                "{{categoryId}}"
+              ]
+            },
+            "description": "A category referenced by tickets must not be deletable: the tickets would lose the field\nthat says what kind of fault they were, and the history becomes unreadable.\n\nThis request lives at the END of this folder, not in 02 Reference Data, and the reason is\nworth recording. It targets {{categoryId}} -- the category every ticket in this collection\nis logged against. Run before any ticket exists, the delete legitimately SUCCEEDS, and\nbecause the old assertion tolerated 204 it counted as a pass while destroying the category\nthe remaining 70-odd requests depend on. Every one of them then failed with 422 on a\nmissing id. That is exactly what happened on the first CI run against a fresh database;\nlocally the category happened to be in use already, so it returned 409 and the flaw stayed\nhidden.\n\nPlaced after 'Log an issue (as Staff)' the ticket exists, so 409 is deterministic -- and a\ndelete that somehow succeeds now FAILS the suite instead of silently wrecking it."
           }
         }
       ]

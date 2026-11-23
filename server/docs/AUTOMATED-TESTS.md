@@ -9,7 +9,7 @@ all with `npm test`; run the fast ones constantly with `npm run test:unit`.
 |---|---|---|---|---|
 | Unit | `npm run test:unit` | nothing | ~1s | wrong logic in the SLA clock, the authorization rules, the lifecycle table |
 | Integration | `npm run test:integration` | PostgreSQL | ~3s | wrong status codes, unwired checks, broken routes, Prisma queries that no longer match the schema |
-| API suite | `npx newman run docs/Techtrackers.postman_collection.json --env-var baseUrl=http://localhost:5000` | the server running | ~6s | the whole surface, 104 requests and 193 assertions, in the order a real client uses it |
+| API suite | `npx newman run docs/Techtrackers.postman_collection.json --env-var baseUrl=http://localhost:5000` | the server running | ~6s | the whole surface, 104 requests and 194 assertions, in the order a real client uses it |
 | Concurrency | `npm run check:concurrency` | the server running | <1s | the ticket-reference race, which only appears under simultaneous load |
 
 CI runs all four on every push. See `.github/workflows/ci.yml`.
@@ -156,6 +156,27 @@ The collection is **re-runnable** — it creates its one user with a timestamped
 email specifically so a second run does not collide with the first. It did
 collide once, and the result was three requests silently sending the literal
 `{{newUserId}}` and testing nothing.
+
+### It also has to survive an empty database, and did not
+
+`npm run db:seed` creates reference data and users but **no tickets**. The
+first CI run therefore started from zero tickets, and `Delete a category in
+use (expect 409)` — which targets `{{categoryId}}`, the category every ticket
+in the collection is logged against — found that category unused and deleted
+it. 204 instead of 409.
+
+Its assertion tolerated 204, so it counted as a pass. The next 70-odd requests
+then failed with 422 on a missing ticket id. Fifty red assertions from one
+tolerant expectation.
+
+It never reproduced locally, because a developer's database has tickets in it
+and the category was always in use. The delete now runs at the end of
+`03 Tickets`, after a ticket exists, and requires exactly 409 — so a delete
+that succeeds fails the suite instead of wrecking it.
+
+The lesson generalises: an assertion that accepts several status codes hides
+the case where the wrong one does damage. Prefer one code, and if a request
+genuinely cannot know which to expect, fix the ordering so that it can.
 
 The concurrency check fires 10 simultaneous submissions per department and
 asserts every one succeeded with a gapless reference. It exists because the
