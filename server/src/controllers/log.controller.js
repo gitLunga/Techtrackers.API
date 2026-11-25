@@ -13,14 +13,14 @@
  *   An admin calling it gets everything; a staff member gets their own tickets.
  *   Same URL, same code path, no duplicated controller per role.
  */
-import path from 'node:path';
 import asyncHandler from '../utils/asyncHandler.js';
 import { ok, created, paginated } from '../utils/apiResponse.js';
 import getPagination from '../utils/pagination.js';
 import * as logService from '../services/log.service.js';
 import * as assignmentService from '../services/assignment.service.js';
 import * as escalationService from '../services/escalation.service.js';
-import { uploadRoot } from '../middleware/upload.js';
+import * as storage from '../services/storage/index.js';
+import logger from '../config/logger.js';
 
 export const createLog = asyncHandler(async (req, res) => {
   const log = await logService.createLog({
@@ -112,15 +112,41 @@ export const escalate = asyncHandler(async (req, res) => {
 });
 
 /**
- * Streams the file from disk rather than embedding it in JSON. `res.sendFile`
- * is given an absolute path built from our own stored name — never from
- * anything the client sent — so there is no path-traversal surface.
+ * Streams the file rather than embedding it in JSON, and goes through the
+ * storage layer so the same handler serves a local disk or an S3 bucket with
+ * no change here.
+ *
+ * getAttachment() has already checked that this user may see this ticket, and
+ * the key comes from our own database row — never from anything the client
+ * sent — so there is no path-traversal surface.
+ *
+ * The stream is opened BEFORE any header is set. A missing object then
+ * surfaces as a clean 404 through the normal error handler; opening it after
+ * the headers were written would mean a 200 that turns into a truncated body,
+ * which a browser reports as a corrupt download.
  */
 export const downloadAttachment = asyncHandler(async (req, res) => {
   const attachment = await logService.getAttachment(req.params.id, req.params.attachmentId, req.user);
+  const stream = await storage.openStream(attachment.storedName);
+
   res.setHeader('Content-Type', attachment.mimeType);
+  res.setHeader('Content-Length', attachment.sizeBytes);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}"`);
-  return res.sendFile(path.join(uploadRoot, attachment.storedName));
+  // Attachments are immutable once uploaded — the key is random and never
+  // reused — so they can be cached hard. `private` keeps them out of any
+  // shared proxy, since the URL is only authorised for this user.
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+
+  // A failure mid-stream cannot become a different status code, because the
+  // headers are already sent. Destroying the response is the only honest
+  // signal available, and the client sees a truncated transfer rather than a
+  // silently short file.
+  stream.on('error', (error) => {
+    logger.error(`Attachment stream failed for key ${attachment.storedName}: ${error.message}`);
+    res.destroy(error);
+  });
+
+  return stream.pipe(res);
 });
 
 export default {

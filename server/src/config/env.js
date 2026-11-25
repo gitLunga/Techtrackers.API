@@ -35,8 +35,36 @@ const schema = z.object({
 
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 
+  /**
+   * Where ticket attachments are kept.
+   *
+   *   local  Under UPLOAD_DIR. The default so a fresh clone works with no
+   *          cloud account. Correct in production ONLY where the disk really
+   *          persists (a VPS, or a mounted volume) — on an ephemeral
+   *          container filesystem every attachment is lost on redeploy.
+   *   s3     Any S3-compatible bucket. Survives redeploys and works with more
+   *          than one instance.
+   *
+   * See docs/DEPLOYMENT.md. Switching drivers also needs the files you
+   * already have moved across: `npm run storage:migrate`.
+   */
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+
   UPLOAD_DIR: z.string().default('uploads'),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
+
+  // Only read when STORAGE_DRIVER=s3, and required then — see the refinement
+  // below, which fails at boot rather than at the moment a user first tries
+  // to attach a file.
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
@@ -61,7 +89,29 @@ const schema = z.object({
   VAPID_SUBJECT: z.string().default('mailto:admin@techtrackers.local'),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * Conditional requirements live here rather than on the individual fields,
+ * because what is required depends on another field's value.
+ *
+ * The point is to fail at BOOT. An S3 driver with no bucket configured would
+ * otherwise start cleanly, serve every page correctly, and only break when a
+ * user attached their first file — by which time whoever deployed it has gone
+ * home.
+ */
+const withConditionalRules = schema.superRefine((config, ctx) => {
+  if (config.STORAGE_DRIVER !== 's3') return;
+  for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
+    if (!config[key]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} is required when STORAGE_DRIVER=s3`,
+      });
+    }
+  }
+});
+
+const parsed = withConditionalRules.safeParse(process.env);
 
 if (!parsed.success) {
   // Fail loudly and immediately, before a single request is served.

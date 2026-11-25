@@ -7,9 +7,10 @@ Three questions, answered in order:
 3. [Phones: Android, iOS, HarmonyOS](#3-phones-android-ios-and-harmonyos) — what is realistic and what is a separate project
 4. [A dedicated server](#4-a-dedicated-server-and-what-owning-one-means) — and what owning one actually commits you to
 
-> **Read §2.1 before you deploy anywhere.** There is one defect that will lose
-> user data on most hosts, and it is cheap to fix before launch and expensive
-> after.
+> **§2.1 is now fixed.** Attachments can be stored in an S3-compatible bucket
+> instead of on the container's disk. It is one environment variable plus a
+> one-off migration — but it is **not the default**, so read §2.1 and decide
+> deliberately before you deploy.
 
 ---
 
@@ -82,36 +83,80 @@ CI runs all of these on every push — see `.github/workflows/ci.yml`. Details i
 
 ## 2. Hosting it
 
-### 2.1 Fix this first: attachments are written to local disk
+### 2.1 Attachments: pick a storage driver deliberately
 
-`src/middleware/upload.js` uses multer's `diskStorage` and writes into
-`uploads/` next to the app:
+`STORAGE_DRIVER` decides where ticket attachments are kept, and it is the one
+setting that determines whether they survive a deployment.
 
-```js
-const uploadRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
+| Value | Where files go | Use it when |
+|---|---|---|
+| `local` *(default)* | Under `UPLOAD_DIR` | Development, or production on a host with a genuinely persistent disk — a VPS, or a container with a mounted volume |
+| `s3` | Any S3-compatible bucket | **Everything else.** Render, Heroku, Fly without a volume, Cloud Run, or anything that autoscales |
+
+**Why it matters.** A container's filesystem is ephemeral: discarded on every
+redeploy, restart, crash and scale event. With `local` on such a host, every
+file a user attached disappears the next time the process restarts — while the
+row in `log_attachments` survives, so the ticket still lists the attachment and
+the download 404s.
+
+Nobody catches it in testing, because a developer redeploys and re-seeds
+constantly. It surfaces weeks later, when a technician opens an old ticket to
+read the error message somebody screenshotted.
+
+#### Switching to S3
+
+Works with AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces and MinIO.
+R2 and B2 charge no egress, which is the line item that surprises people on S3.
+
+**Do it in this order.** The app keeps serving from disk the whole time, and
+the cutover is a restart rather than a window where attachments are missing.
+
+```bash
+# 1. Put the S3 settings in .env, but leave STORAGE_DRIVER=local for now
+S3_BUCKET=techtrackers-attachments
+S3_REGION=auto
+S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com   # omit for AWS S3
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_FORCE_PATH_STYLE=false                                # true for MinIO
+
+# 2. Dry run — reports what it would copy, writes nothing
+npm run storage:migrate
+
+# 3. Copy the files you already have into the bucket
+npm run storage:migrate -- --commit
+
+# 4. Only now: set STORAGE_DRIVER=s3 and restart
 ```
 
-A container's filesystem is **ephemeral**. It is wiped on every redeploy,
-restart, crash and scale event. So on Render, Heroku, Fly without a volume,
-App Runner, Cloud Run, or any autoscaling setup, **every screenshot a user
-attached to a ticket is gone the next time the app restarts** — while the
-database still lists the attachment, so the UI offers a download that 404s.
+Step 3 is not optional. `log_attachments.storedName` holds the same opaque key
+for both drivers, so without it those rows stay valid-looking while pointing at
+objects the bucket has never heard of — every old attachment would 404, caused
+by the fix rather than the bug.
 
-Nobody notices in testing, because you redeploy and re-seed constantly. It
-surfaces three weeks in, when a technician opens an old ticket to check what
-the error message actually said.
+The migration is **safe to re-run**: it skips objects already present, so an
+interrupted run just gets started again. It never deletes the local copies —
+keep those until you have confirmed downloads work from the bucket, then remove
+them deliberately.
 
-Three ways out, in order of preference:
+It also reports any row whose file is **already missing from disk**. Those are
+attachments lost to an earlier redeploy, which is the bug this closes. Nothing
+can recover them; they are listed so you know which tickets have a broken
+download.
 
-| Option | Effort | Notes |
-|---|---|---|
-| **Object storage** (S3, Cloudflare R2, Backblaze B2) | ~half a day | The right answer. Swap `diskStorage` for a stream to the bucket, store the key instead of the path, serve via signed URLs. Survives anything, scales to many instances. |
-| **A persistent volume** | ~an hour | Fine on a VPS or Fly volume. Keeps the current code almost unchanged. But it pins you to one instance and the volume needs its own backup. |
-| **Store in PostgreSQL** | ~2 hours | Works, backs up with the database, but bloats it and makes dumps slow. Acceptable only if attachments stay small and few. |
+#### Two things worth knowing
 
-If you host on a single VPS with a real disk (§4), the volume option is enough
-and you can defer object storage. **If you host anywhere else, do object
-storage before you let real users on.**
+**Credentials never go in the repo.** With `STORAGE_DRIVER=s3` the app refuses
+to boot unless the bucket and keys are set, rather than failing at the moment a
+user first attaches a file.
+
+**Downloads are proxied, not redirected.** The API streams the object rather
+than handing out a presigned URL. That costs this server the bandwidth and buys
+one thing worth more: authorisation stays in a single place. A presigned URL is
+a second grant that outlives the permission check and can be forwarded to
+anyone. Attachments are capped by `MAX_UPLOAD_BYTES`, so the bandwidth is not
+the bottleneck. If that ever changes, the switch is confined to
+`s3.driver.js#openStream` and the download controller.
 
 ### 2.2 The other things that bite in production
 
@@ -149,7 +194,8 @@ Caddy gets you HTTPS with no certificate work. You own backups and patching.
 - Frontend → Vercel / Netlify / Cloudflare Pages (static build, needs a
   rewrite rule so client-side routes don't 404 on refresh)
 
-Convenient, and **requires the object-storage fix** from §2.1.
+Convenient, and **requires `STORAGE_DRIVER=s3`** (§2.1) — every one of these
+hosts has an ephemeral filesystem.
 
 **C — TUT's own infrastructure.** Probably where this ends up.
 
@@ -320,7 +366,10 @@ matters here for three specific reasons:
    fire overnight — which defeats the point of the system.
 2. **The SLA sweep must run continuously.** It's an in-process timer. If the
    process isn't running, nothing escalates.
-3. **Attachments need a real disk** (§2.1) unless you move to object storage.
+3. **Attachments need somewhere durable.** A VPS has a real disk, so
+   `STORAGE_DRIVER=local` is a legitimate choice here rather than a trap — the
+   one place in this document where that is true (§2.1). You then own backing
+   that directory up.
 
 ### A workable setup
 
@@ -359,8 +408,8 @@ data-residency story. It also makes you responsible for backups, TLS renewal,
 OS patching, monitoring and recovery — work that a managed platform does for
 you.
 
-For a TUT pilot the VPS is the right call, mostly because of §2.1 and the SLA
-sweep. But go in knowing that "dedicated server" means "I am now the sysadmin",
+For a TUT pilot the VPS is the right call, mostly because of the SLA sweep and
+the data-residency question below. But go in knowing that "dedicated server" means "I am now the sysadmin",
 and budget for that rather than discovering it during an incident.
 
 ---
@@ -369,7 +418,6 @@ and budget for that rather than discovering it during an incident.
 
 Honest list, so nothing here reads as more finished than it is:
 
-- **Attachments on ephemeral disk** (§2.1) — the one that loses data
 - **No Dockerfile or production compose**
 - **No backups**
 - **SMTP unconfigured** — password reset does not work for real users

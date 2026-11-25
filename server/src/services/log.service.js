@@ -41,6 +41,7 @@ import {
   ROLES,
   STATUS_TRANSITIONS,
 } from '../constants/index.js';
+import * as storage from './storage/index.js';
 import * as slaService from './sla.service.js';
 import * as notificationService from './notification.service.js';
 import { emitToLog } from '../realtime/emitter.js';
@@ -244,8 +245,67 @@ export async function assertCanModify(log, user, toStatus = null) {
   throw ApiError.forbidden('You are not permitted to change this ticket');
 }
 
+/**
+ * Removes objects that were uploaded for a ticket that then failed to be
+ * created, so they do not accumulate as paid-for storage nothing points at.
+ *
+ * Deliberately never throws. It runs on a path that is ALREADY failing, and
+ * the error the user needs to see is the original one — not a secondary
+ * complaint about cleanup. A leaked object is logged and moves on.
+ */
+async function discardStoredFiles(storedFiles, reason) {
+  if (storedFiles.length === 0) return;
+  for (const file of storedFiles) {
+    try {
+      await storage.remove(file.key);
+    } catch (error) {
+      logger.error(
+        `Could not remove orphaned attachment ${file.key} after ${reason}: ${error.message}`,
+      );
+    }
+  }
+  logger.debug(`Removed ${storedFiles.length} orphaned attachment(s) because ${reason}`);
+}
+
 export async function createLog({ payload, reporterId, files = [] }) {
   const { title, description, categoryId, priority, location, latitude, longitude, locationAccuracy, assetId } = payload;
+
+  /**
+   * ATTACHMENTS ARE COMMITTED TO STORAGE BEFORE THE TRANSACTION, and the order
+   * is deliberate.
+   *
+   * Files first, then the database: if storage fails, no ticket is created and
+   * the user sees a real error, so they can retry with their screenshot still
+   * in the form. If the database then fails, the objects are deleted below —
+   * and even if that cleanup itself fails, the worst case is an orphaned
+   * object nobody references, which costs a fraction of a cent.
+   *
+   * Database first would invert that: a row pointing at a file that was never
+   * stored, which the UI renders as a download that 404s. Cheap waste beats a
+   * broken record.
+   *
+   * It also sits OUTSIDE the retry loop below. save() consumes the temporary
+   * file multer wrote, so a reference-collision retry must not try to upload
+   * it a second time.
+   */
+  const storedFiles = [];
+  try {
+    for (const file of files) {
+      await storage.save(file.path, file.storageKey, file.mimetype);
+      storedFiles.push({
+        key: file.storageKey,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+      });
+    }
+  } catch (error) {
+    await discardStoredFiles(storedFiles, 'an upload failed part-way through');
+    logger.error(`Attachment upload failed for user ${reporterId}: ${error.message}`);
+    throw ApiError.badRequest(
+      'Your attachment could not be stored, so the ticket was not logged. Please try again.',
+    );
+  }
 
   // Everything below happens atomically: reference allocation, the ticket,
   // its attachments and its opening history row. The whole transaction is
@@ -295,11 +355,15 @@ export async function createLog({ payload, reporterId, files = [] }) {
           responseDueAt,
           resolutionDueAt,
           attachments: {
-            create: files.map((f) => ({
-              storedName: f.filename,
-              originalName: f.originalname,
-              mimeType: f.mimetype,
-              sizeBytes: f.size,
+            // `storedName` holds the STORAGE KEY, which both the local and the
+            // S3 driver understand. Keeping it driver-agnostic is what lets a
+            // deployment move from a disk to a bucket without touching a
+            // single row (see services/storage/index.js).
+            create: storedFiles.map((f) => ({
+              storedName: f.key,
+              originalName: f.originalName,
+              mimeType: f.mimeType,
+              sizeBytes: f.sizeBytes,
             })),
           },
           statusHistory: {
@@ -320,7 +384,12 @@ export async function createLog({ payload, reporterId, files = [] }) {
     } catch (error) {
       // Only a reference clash is retryable. A bad category or a missing SLA is
       // a real failure and must surface immediately.
-      if (!isReferenceCollision(error) || attempt >= REFERENCE_MAX_ATTEMPTS - 1) throw error;
+      if (!isReferenceCollision(error) || attempt >= REFERENCE_MAX_ATTEMPTS - 1) {
+        // The ticket is not being created, so the objects uploaded above now
+        // reference nothing. Remove them rather than leaving them to accrue.
+        await discardStoredFiles(storedFiles, 'the ticket could not be created');
+        throw error;
+      }
       logger.debug(`Ticket reference collision, retrying (attempt ${attempt + 2})`);
     }
   }

@@ -2,31 +2,48 @@
  * src/middleware/upload.js
  * -----------------------------------------------------------------------------
  * WHY THIS FILE EXISTS
- *   The old API accepted an IFormFile, read it fully into memory, and stored the
- *   raw bytes in the `AttachmentFile` varbinary column — then returned them as
- *   `Convert.ToBase64String(...)` inside EVERY list response. A page of tickets
- *   carrying photos was tens of megabytes of JSON, and the database grew as a
- *   file server.
+ *   The old C# API accepted an IFormFile, read it fully into memory, and stored
+ *   the raw bytes in the `AttachmentFile` varbinary column — then returned them
+ *   as `Convert.ToBase64String(...)` inside EVERY list response. A page of
+ *   tickets carrying photos was tens of megabytes of JSON, and the database
+ *   grew as a file server.
  *
  * WHAT IT ACHIEVES
- *   Multer streams uploads to disk and puts only metadata in `req.files`; the
- *   service records the PATH. List responses stay small, and files are fetched
- *   on demand from a dedicated download endpoint.
+ *   Multer streams each upload to a TEMPORARY file and puts only metadata on
+ *   `req.files`. The storage layer then moves it to its permanent home — a
+ *   local directory or an S3 bucket, decided by configuration — and the
+ *   service records the resulting key. List responses stay small and files are
+ *   fetched on demand from the download endpoint.
  *
- *   It also enforces the two limits an upload endpoint must always have:
- *   a maximum size and an allow-list of content types. Stored filenames are
- *   randomised so a caller cannot control the path on disk (a user-supplied
- *   name like "../../etc/passwd" must never reach the filesystem).
+ * WHY A TEMP FILE AND NOT multer.memoryStorage()
+ *   Memory storage holds every byte in RAM. Five files at the maximum size, on
+ *   a handful of concurrent requests, is heap that scales with traffic and
+ *   nothing to show for it. Writing to a temp file keeps memory flat, still
+ *   lets multer abort an oversized upload as the bytes arrive, and lets the S3
+ *   driver stream from disk rather than buffer.
+ *
+ *   The temp directory is INSIDE the upload root on purpose: the local driver
+ *   finishes the job with a rename, which is atomic and free only when both
+ *   paths are on the same filesystem.
+ *
+ * SECURITY
+ *   Two limits an upload endpoint must always have — a maximum size and an
+ *   allow-list of content types — plus storage keys that are generated, never
+ *   derived from the client's filename. A name like "../../etc/passwd" must
+ *   never reach a filesystem or a bucket.
  */
 import path from 'node:path';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import multer from 'multer';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
+import { buildKey } from '../services/storage/index.js';
 
-const uploadRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
-fs.mkdirSync(uploadRoot, { recursive: true });
+// Lives under the upload root so the local driver's rename stays on one
+// filesystem. Files here are in flight only: the storage layer removes each
+// one as it is committed, whether that succeeds or fails.
+const tempRoot = path.resolve(process.cwd(), env.UPLOAD_DIR, '.incoming');
+fs.mkdirSync(tempRoot, { recursive: true });
 
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -42,12 +59,14 @@ const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadRoot),
+  destination: (_req, _file, cb) => cb(null, tempRoot),
   filename: (_req, file, cb) => {
-    // Never trust the client's filename for the path on disk. Keep only the
-    // extension, and generate the rest.
-    const ext = path.extname(file.originalname).slice(0, 10).replace(/[^.\w]/g, '');
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+    // The permanent key is decided here, before a byte is written, and carried
+    // on the file object so the service does not have to invent one later.
+    // The temp filename is derived from it so a half-finished upload is
+    // traceable to the key it was going to take.
+    file.storageKey = buildKey(file.originalname);
+    cb(null, file.storageKey.replace(/\//g, '_'));
   },
 });
 
@@ -85,5 +104,5 @@ export const withAttachments = (req, res, next) =>
     return next(error);
   });
 
-export { uploadRoot };
+export { tempRoot };
 export default withAttachments;
